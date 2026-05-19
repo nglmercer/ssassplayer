@@ -67,10 +67,14 @@
     "typescript": "^5.9.3"
   },
   "peerDependencies": {
-    "hls.js": "^1.4.0"
+    "hls.js": "^1.4.0",
+    "shaka-player": ""
   },
   "peerDependenciesMeta": {
     "hls.js": {
+      "optional": true
+    },
+    "shaka-player": {
       "optional": true
     }
   },

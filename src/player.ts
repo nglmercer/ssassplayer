@@ -249,9 +249,7 @@ export class Player implements IPlayer {
 
   async play(): Promise<void> {
     try {
-      // When using hls.js, the src is set via MediaSource (blob: URL) which may
-      // not be attached yet. Don't bail if hls-plugin is handling the source.
-      if (!this.media.src && !this.media.srcObject && !this.hasPlugin("hls-plugin")) {
+      if (!this.media.src && !this.media.srcObject && !this.hasPlugin("hls-plugin") && !this.hasPlugin("shaka-plugin")) {
         return;
       }
       await this.media.play();
@@ -284,10 +282,11 @@ export class Player implements IPlayer {
   }
   setSource(url: string) {
     const isHls = url.toLowerCase().split('?')[0].endsWith(".m3u8") || url.includes(".m3u8");
+    const isDash = url.toLowerCase().split('?')[0].endsWith(".mpd") || url.includes(".mpd");
     const supportsNativeHls = !!this.media.canPlayType("application/vnd.apple.mpegurl");
 
-    if (isHls && !supportsNativeHls && this.hasPlugin("hls-plugin")) {
-      console.log("Player: HLS detected, deferring to hls-plugin");
+    if ((isHls || isDash) && !supportsNativeHls && (this.hasPlugin("hls-plugin") || this.hasPlugin("shaka-plugin"))) {
+      console.log("Player: Streaming format detected, deferring to plugin");
     } else {
       this.media.src = url;
       this.media.load();

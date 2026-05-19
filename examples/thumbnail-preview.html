@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YTPlayer - Thumbnail Preview Example</title>
+    <link rel="stylesheet" href="../dist/player.css">
+    <style>
+        body {
+            font-family: system-ui, sans-serif;
+            background: #0f0f0f;
+            color: #eee;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .wrapper {
+            width: 100%;
+            max-width: 900px;
+            aspect-ratio: 16/9;
+            position: relative;
+            background: #000;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        video {
+            width: 100%;
+            height: 100%;
+        }
+
+        .info {
+            margin-top: 20px;
+            max-width: 900px;
+            padding: 20px;
+            background: #1a1a1a;
+            border-radius: 8px;
+        }
+
+        .info h3 {
+            margin-top: 0;
+        }
+
+        .info code {
+            background: #333;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+
+        .info pre {
+            background: #222;
+            padding: 16px;
+            border-radius: 6px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="player wrapper" id="container">
+        <div class="video-container">
+            <video id="video" playsinline crossorigin="anonymous"></video>
+        </div>
+    </div>
+
+    <div class="info">
+        <h3>Thumbnail Preview on Hover</h3>
+        <p>Hover over the progress bar to see frame previews. This example uses two strategies:</p>
+
+        <h4>1. VTT Sprite Sheet (YouTube-style)</h4>
+        <p>Pre-generate a sprite sheet and VTT file server-side. The VTT maps time ranges to positions in the sprite.</p>
+        <pre><code>import { createVttThumbnailPlugin } from 'ssassplayer';
+
+await player.usePlugin(createVttThumbnailPlugin({
+  vttUrl: '/thumbnails.vtt'
+}));</code></pre>
+
+        <h4>2. Manual Sprite Configuration</h4>
+        <p>If you already have sprite sheets, configure them directly:</p>
+        <pre><code>await player.usePlugin(createVttThumbnailPlugin({
+  sprites: [{
+    url: '/thumbs/sprite.jpg',
+    width: 1600,
+    height: 900,
+    tileWidth: 160,
+    tileHeight: 90,
+    interval: 10
+  }]
+}));</code></pre>
+
+        <h4>VTT File Format</h4>
+        <pre><code>WEBVTT
+
+00:00:00.000 --> 00:00:10.000
+sprite.jpg#xywh=0,0,160,90
+
+00:00:10.000 --> 00:00:20.000
+sprite.jpg#xywh=160,0,160,90
+
+00:00:20.000 --> 00:00:30.000
+sprite.jpg#xywh=320,0,160,90</code></pre>
+    </div>
+
+    <script type="module">
+        import { Player, createControls, createGestures, createVttThumbnailPlugin } from "../dist/index.js";
+
+        const video = document.getElementById('video');
+        const container = document.getElementById('container');
+
+        const player = new Player({ media: video });
+
+        await player.usePlugin(createControls());
+        await player.usePlugin(createGestures());
+
+        // Option 1: Using a VTT file (recommended for production)
+        // await player.usePlugin(createVttThumbnailPlugin({
+        //     vttUrl: '/path/to/thumbnails.vtt'
+        // }));
+
+        // Option 2: Using sprite configuration directly
+        // This example uses a demo sprite from a public test stream
+        await player.usePlugin(createVttThumbnailPlugin({
+            sprites: [{
+                url: 'https://media.w3.org/2010/05/sintel/posters/sintel.jpg',
+                width: 1920,
+                height: 1080,
+                tileWidth: 192,
+                tileHeight: 108,
+                interval: 5
+            }]
+        }));
+
+        // Load a test video
+        player.setSource('https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8');
+    </script>
+</body>
+
+</html>

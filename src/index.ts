@@ -27,5 +27,14 @@ export type {
 // HLS Plugin
 export { createHlsPlugin } from "./plugins/hls";
 export type { HlsPluginOptions } from "./plugins/hls";
+
+// Shaka Plugin (HLS + DASH)
+export { createShakaPlugin } from "./plugins/shaka";
+export type { ShakaPlayerOptions } from "./plugins/shaka";
+
+// VTT Thumbnail Plugin (Hover Preview)
+export { createVttThumbnailPlugin } from "./plugins/vtt-thumbnail";
+export type { VttThumbnailOptions } from "./plugins/vtt-thumbnail";
+
 export { createAssPlugin } from "./plugins/ass/index";
 export { createAssJsPlugin, AssJsPluginOptions } from "./plugins/assjs/index";

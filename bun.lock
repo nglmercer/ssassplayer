@@ -23,9 +23,11 @@
       },
       "peerDependencies": {
         "hls.js": "^1.4.0",
+        "shaka-player": "",
       },
       "optionalPeers": [
         "hls.js",
+        "shaka-player",
       ],
     },
   },

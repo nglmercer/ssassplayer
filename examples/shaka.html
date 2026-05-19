@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YTPlayer - Shaka Player Example</title>
+    <link rel="stylesheet" href="../dist/player.css">
+    <script src="https://cdn.jsdelivr.net/npm/shaka-player@4.12.4/dist/shaka-player.compiled.min.js"></script>
+    <style>
+        body {
+            font-family: system-ui, sans-serif;
+            background: #0f0f0f;
+            color: #eee;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .wrapper {
+            width: 100%;
+            max-width: 900px;
+            aspect-ratio: 16/9;
+            position: relative;
+            background: #000;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        video {
+            width: 100%;
+            height: 100%;
+        }
+
+        .controls-external {
+            margin-top: 20px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        button {
+            padding: 8px 16px;
+            background: #333;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #444;
+        }
+
+        .section-label {
+            width: 100%;
+            text-align: center;
+            margin-top: 10px;
+            font-size: 0.9em;
+            color: #888;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="player wrapper" id="container">
+        <div class="video-container">
+            <video id="video" playsinline crossorigin="anonymous"></video>
+        </div>
+    </div>
+
+    <div class="controls-external" id="stream-buttons">
+    </div>
+
+    <script type="module">
+        import { Player, createControls, createGestures, Menu, createShakaPlugin } from "../dist/index.js";
+
+        const HLS_STREAMS = [
+            { label: "Mux Stream (ABR)", url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8" },
+            { label: "Sintel (4K & Surround)", url: "https://bitdash-a.akamaihd.net/content/sintel/hls/playlist.m3u8" },
+            { label: "Bip-Bop (HEVC)", url: "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_adv_example_hevc/master.m3u8" }
+        ];
+
+        const DASH_STREAMS = [
+            { label: "Big Buck Bunny", url: "https://dash.akamaized.net/akamai/bbb_30fps/bbb_30fps.mpd" },
+            { label: "Sintel DASH", url: "https://dash.akamaized.net/dash264/TestCases/10a/1/sintel_1080p_surround_5_1_dash.mpd" }
+        ];
+
+        const buttonContainer = document.getElementById('stream-buttons');
+
+        const hlsLabel = document.createElement('div');
+        hlsLabel.className = 'section-label';
+        hlsLabel.textContent = 'HLS Streams';
+        buttonContainer.appendChild(hlsLabel);
+
+        HLS_STREAMS.forEach(stream => {
+            const btn = document.createElement('button');
+            btn.textContent = `Load ${stream.label}`;
+            btn.onclick = () => window.loadSource(stream.url);
+            buttonContainer.appendChild(btn);
+        });
+
+        const dashLabel = document.createElement('div');
+        dashLabel.className = 'section-label';
+        dashLabel.textContent = 'DASH Streams';
+        buttonContainer.appendChild(dashLabel);
+
+        DASH_STREAMS.forEach(stream => {
+            const btn = document.createElement('button');
+            btn.textContent = `Load ${stream.label}`;
+            btn.onclick = () => window.loadSource(stream.url);
+            buttonContainer.appendChild(btn);
+        });
+
+        const video = document.getElementById('video');
+        const container = document.getElementById('container');
+
+        const player = new Player({ media: video });
+
+        window.loadSource = (url) => {
+            player.setSource(url);
+            player.play();
+        };
+
+        const controls = await player.usePlugin(createControls());
+        await player.usePlugin(createGestures());
+
+        await player.usePlugin(createShakaPlugin({
+            shaka: window.shaka,
+            shakaConfig: {
+                streaming: {
+                    bufferingGoal: 60,
+                },
+                abr: {
+                    enabled: true,
+                },
+            }
+        })).then(() => {
+            window.loadSource(HLS_STREAMS[0].url);
+        });
+
+        const menu = new Menu(container, [
+            { label: 'Quality', items: [] },
+            { label: 'Audio', items: [] },
+            { label: 'Subtitles', items: [] }
+        ]);
+
+        controls.getSettingsButton().onclick = (e) => {
+            e.stopPropagation();
+            refreshMenu();
+            menu.toggle();
+        };
+
+        function refreshMenu() {
+            const api = player.getAPI();
+            const groups = [];
+
+            const qProvider = api.getQualityProvider();
+            if (qProvider) {
+                const current = qProvider.getCurrentQuality();
+                const levels = qProvider.getAvailableQualities();
+                groups.push({
+                    label: 'Quality',
+                    items: [{
+                        type: 'select',
+                        id: 'quality',
+                        label: 'Quality',
+                        value: current?.id?.toString() || '-1',
+                        options: levels.map(x => ({
+                            value: x.id,
+                            label: x.height ? `${x.height}p` : x.label
+                        })),
+                        onChange: (val) => qProvider.setQuality(val)
+                    }]
+                });
+            }
+
+            const tProvider = api.getTextTrackProvider();
+            if (tProvider) {
+                const tracks = tProvider.getTextTracks();
+                if (tracks.length > 0) {
+                    const active = tProvider.getActiveTrack();
+                    groups.push({
+                        label: 'Subtitles',
+                        items: [{
+                            type: 'select',
+                            id: 'subtitles',
+                            label: 'Subtitles',
+                            value: active ? active.id : '-1',
+                            options: [
+                                { value: '-1', label: 'Off' },
+                                ...tracks.map(t => ({
+                                    value: t.id,
+                                    label: `${t.label || t.language || 'Unknown'}`
+                                }))
+                            ],
+                            onChange: (val) => tProvider.setActiveTrack(val === '-1' ? null : val)
+                        }]
+                    });
+                }
+            }
+
+            const aProvider = api.getAudioTrackProvider();
+            if (aProvider) {
+                const tracks = aProvider.getAudioTracks();
+                if (tracks.length > 0) {
+                    const active = tracks.find(t => t.enabled);
+                    groups.push({
+                        label: 'Audio',
+                        items: [{
+                            type: 'select',
+                            id: 'audio',
+                            label: 'Audio Track',
+                            value: active ? active.id : tracks[0].id,
+                            options: tracks.map(t => ({ value: t.id, label: `${t.label} (${t.language})` })),
+                            onChange: (val) => aProvider.setActiveTrack(val)
+                        }]
+                    });
+                }
+            }
+
+            groups.push({
+                label: 'Playback',
+                items: [{
+                    type: 'select',
+                    id: 'speed',
+                    label: 'Speed',
+                    value: player.getState().playbackRate.toString(),
+                    options: [
+                        { value: '0.5', label: '0.5x' },
+                        { value: '1', label: 'Normal' },
+                        { value: '1.5', label: '1.5x' },
+                        { value: '2', label: '2x' }
+                    ],
+                    onChange: (v) => player.setRate(parseFloat(v))
+                }]
+            });
+
+            menu.setGroups(groups);
+        }
+
+    </script>
+</body>
+
+</html>
