@@ -7,6 +7,7 @@ Welcome to the **ssassplayer** documentation. This library provides a highly cus
 - [**Getting Started**](./docs/getting-started.md) - Installation and basic setup.
 - [**HLS & DASH Streaming**](./docs/hls-streaming.md) - How to play HLS (.m3u8) and DASH (.mpd) streams.
 - [**Thumbnail Previews**](./docs/thumbnail-previews.md) - YouTube-style hover preview thumbnails.
+- [**Responsive Controls**](./docs/compact-controls.md) - Compact overlay controls with custom buttons for small screens.
 - [**UI Customization**](./docs/ui-customization.md) - Using Controls, Menus, and modifying styles.
 - [**Gestures & Shortcuts**](./docs/gestures-and-shortcuts.md) - Touch gestures and keyboard controls.
 - [**Examples**](./examples/README.md) - Implementations for Vanilla JS, Preact, and Vue.
@@ -14,6 +15,7 @@ Welcome to the **ssassplayer** documentation. This library provides a highly cus
 ## Features
 
 - **Modern UI**: YouTube-inspired design with glassmorphism and smooth animations.
+- **Responsive Design**: Auto-adapts controls for small screens with expand-to-fullscreen option.
 - **HLS & DASH Support**: Shaka Player plugin for adaptive streaming (recommended) or hls.js for HLS-only.
 - **Hover Thumbnail Previews**: YouTube-style sprite sheet previews on progress bar hover.
 - **ASS/SSA Subtitles**: Built-in support for animated subtitle formats.
@@ -27,6 +29,7 @@ Welcome to the **ssassplayer** documentation. This library provides a highly cus
 | `createShakaPlugin` | HLS + DASH playback (recommended) | `npm install shaka-player` |
 | `createHlsPlugin` | HLS playback using hls.js | `npm install hls.js` |
 | `createVttThumbnailPlugin` | Hover preview thumbnails | Built-in |
+| `createCompactControls` | Compact overlay with custom action buttons | Built-in |
 | `createAssPlugin` | ASS/SSA subtitle rendering | Built-in |
 | `createAssJsPlugin` | ASS/SSA via assjs | `npm install assjs` |
 | `createControls` | Default UI controls | Built-in |
@@ -35,7 +38,7 @@ Welcome to the **ssassplayer** documentation. This library provides a highly cus
 ## Quick Start
 
 ```typescript
-import { Player, createShakaPlugin, createControls, createGestures, createVttThumbnailPlugin } from 'ssassplayer';
+import { Player, createShakaPlugin, createControls, createGestures, createCompactControls, createVttThumbnailPlugin } from 'ssassplayer';
 
 const player = new Player({
   media: document.getElementById('video'),
@@ -57,6 +60,15 @@ await player.usePlugin(createVttThumbnailPlugin({
 // UI
 await player.usePlugin(createControls());
 await player.usePlugin(createGestures());
+
+// Compact controls for small screens with custom buttons
+await player.usePlugin(createCompactControls({
+  breakpoint: 480,
+  buttons: [
+    { id: 'prev', tooltip: 'Back 10s', onClick: () => player.seek(player.getState().currentTime - 10) },
+    { id: 'next', tooltip: 'Forward 10s', onClick: () => player.seek(player.getState().currentTime + 10) }
+  ]
+}));
 
 // Load source
 player.setSource('https://example.com/stream.m3u8');

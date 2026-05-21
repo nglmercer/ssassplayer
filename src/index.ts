@@ -6,6 +6,8 @@ export * from "./utils/dom";
 export { Menu, Dropdown, type MenuOptions,type MenuGroup } from "./ui/menu";
 export { Controls, createControls } from "./ui/controls";
 export { Gestures, createGestures } from "./ui/gestures";
+export { CompactControls, createCompactControls } from "./plugins/compact-controls";
+export type { CompactControlsOptions, CompactButton } from "./plugins/compact-controls";
 export { APMenuElement, APGesturesElement } from "./ui/components";
 // Plugin interfaces (re-export for convenience)
 export type {

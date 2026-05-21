@@ -9,6 +9,8 @@ export const ICONS = {
     exitFullscreen: '<path fill="currentColor" d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/>',
     forward: '<path fill="currentColor" d="M4 5v14l8-7-8-7Zm9 0v14l8-7-8-7Z"/>',
     back: '<path fill="currentColor" d="M20 5v14l-8-7 8-7Zm-9 0v14L3 12l8-7Z"/>',
+    skipNext: '<path fill="currentColor" d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>',
+    skipPrev: '<path fill="currentColor" d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/>',
     boost: '<path fill="currentColor" d="M12 2l4 8H8l4-8Zm0 20l-4-8h8l-4 8Z"/>',
     menuArrow: '<path fill="currentColor" d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/>',
     menuBack: '<path fill="currentColor" d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/>',

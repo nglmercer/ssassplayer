@@ -1,6 +1,6 @@
 //import { h } from 'preact';
 import { useEffect, useRef } from 'preact/hooks';
-import { Player, createControls, createGestures, createShakaPlugin, createVttThumbnailPlugin, createAssJsPlugin, Menu, Controls, type TextTrack as APTextTrack } from '../../src';
+import { Player, createControls, createGestures, createCompactControls, createShakaPlugin, createVttThumbnailPlugin, createAssJsPlugin, Menu, Controls, type TextTrack as APTextTrack } from '../../src';
 import type { MenuGroup } from '../../src';
 import ASS from 'assjs';
 import '../../dist/player.css';
@@ -110,6 +110,23 @@ export const VideoPlayer = ({ src, poster, autoplay, subtitles, onEnded }: Playe
 
         const controls = (await player.usePlugin(createControls())) as Controls;
         await player.usePlugin(createGestures());
+        
+        // Compact controls for small screens with custom action buttons
+        await player.usePlugin(createCompactControls({
+          breakpoint: 480,
+          buttons: [
+            {
+              id: 'prev',
+              tooltip: 'Back 10s',
+              onClick: () => player.seek(Math.max(player.getState().currentTime - 10, 0))
+            },
+            {
+              id: 'next',
+              tooltip: 'Forward 10s',
+              onClick: () => player.seek(Math.min(player.getState().currentTime + 10, player.getState().duration))
+            }
+          ]
+        }));
 
         // Build menu with quality and subtitle options
         const updateMenu = () => {
