@@ -77,7 +77,8 @@ class ShakaPlugin implements PlayerPluginInstance {
 
         const video = this.player.media as HTMLVideoElement;
 
-        this.shakaInstance = new shaka.Player(video);
+        this.shakaInstance = new shaka.Player();
+        (this.shakaInstance as any).attach(video);
 
         if (this.options.shakaConfig) {
             (this.shakaInstance as any).configure(this.options.shakaConfig);

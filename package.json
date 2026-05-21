@@ -63,12 +63,13 @@
     "postcss-import": "^16.1.1",
     "postcss-nesting": "^14.0.0",
     "preact": "^10.29.1",
+    "shaka-player": "^4.12.4",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3"
   },
   "peerDependencies": {
     "hls.js": "^1.4.0",
-    "shaka-player": ""
+    "shaka-player": "^4.0.0"
   },
   "peerDependenciesMeta": {
     "hls.js": {

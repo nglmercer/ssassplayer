@@ -7,6 +7,12 @@ export function App() {
     const [videoUrl, setVideoUrl] = useState('https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8');
     const [inputValue, setInputValue] = useState(videoUrl);
 
+    const sampleStreams = [
+        { label: 'HLS: Mux (with thumbnails)', url: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8' },
+        { label: 'HLS: Sintel', url: 'https://bitdash-a.akamaihd.net/content/sintel/hls/playlist.m3u8' },
+        { label: 'DASH: Big Buck Bunny', url: 'https://dash.akamaized.net/akamai/bbb_30fps/bbb_30fps.mpd' },
+    ];
+
     const sampleSubtitles = [
         {
             id: 'demo-ass',
@@ -32,7 +38,7 @@ export function App() {
                 <input
                     type="text"
                     class="url-input"
-                    placeholder="Enter HLS .m3u8 URL..."
+                    placeholder="Enter HLS/DASH URL..."
                     value={inputValue}
                     onInput={(e) => setInputValue((e.target as HTMLInputElement).value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleLoad()}
@@ -41,6 +47,18 @@ export function App() {
                     <span>Load Video</span>
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
                 </button>
+            </div>
+
+            <div class="sample-streams">
+                {sampleStreams.map(stream => (
+                    <button
+                        key={stream.url}
+                        class="stream-btn"
+                        onClick={() => { setInputValue(stream.url); setVideoUrl(stream.url); }}
+                    >
+                        {stream.label}
+                    </button>
+                ))}
             </div>
 
             <main class="player-card">

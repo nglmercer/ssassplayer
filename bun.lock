@@ -18,12 +18,13 @@
         "postcss-import": "^16.1.1",
         "postcss-nesting": "^14.0.0",
         "preact": "^10.29.1",
+        "shaka-player": "^4.12.4",
         "tsup": "^8.5.1",
         "typescript": "^5.9.3",
       },
       "peerDependencies": {
         "hls.js": "^1.4.0",
-        "shaka-player": "",
+        "shaka-player": "^4.0.0",
       },
       "optionalPeers": [
         "hls.js",
@@ -429,6 +430,8 @@
     "rxjs": ["rxjs@7.8.2", "", { "dependencies": { "tslib": "^2.1.0" } }, "sha512-dhKf903U/PQZY6boNNtAGdWbG85WAbjT/1xYoZIC7FAY0yWapOBQVsVrDl58W86//e1VpMNBtRV4MaXfdMySFA=="],
 
     "sax": ["sax@1.6.0", "", {}, "sha512-6R3J5M4AcbtLUdZmRv2SygeVaM7IhrLXu9BmnOGmmACak8fiUtOsYNWUS4uK7upbmHIBbLBeFeI//477BKLBzA=="],
+
+    "shaka-player": ["shaka-player@4.16.32", "", {}, "sha512-IctqLYNczkX3PzH/iG/N+m4r12WOgqIPnuvqIXRZlQssMAmKaaUP8pB2MGX9l7SwSG7/PUwQVtIlbt+o/BZl+A=="],
 
     "shell-quote": ["shell-quote@1.8.3", "", {}, "sha512-ObmnIF4hXNg1BqhnHmgbDETF8dLPCggZWBjkQfhZpbszZnYur5DUljTcCHii5LC3J5E0yeO/1LIMyH+UvHQgyw=="],
 

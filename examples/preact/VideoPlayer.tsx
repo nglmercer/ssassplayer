@@ -1,9 +1,57 @@
 //import { h } from 'preact';
 import { useEffect, useRef } from 'preact/hooks';
-import { Player, createControls, createGestures, createHlsPlugin, createAssJsPlugin, Menu, Controls, type TextTrack as APTextTrack } from '../../src';
+import { Player, createControls, createGestures, createShakaPlugin, createVttThumbnailPlugin, createAssJsPlugin, Menu, Controls, type TextTrack as APTextTrack } from '../../src';
 import type { MenuGroup } from '../../src';
 import ASS from 'assjs';
 import '../../dist/player.css';
+
+// Generate a mock sprite sheet as a data URI for demo purposes
+// Creates a 4x1 grid of colored thumbnails with time labels
+function generateMockSpriteSheet(): string {
+    const canvas = document.createElement('canvas');
+    const tileW = 160;
+    const tileH = 180;
+    const cols = 4;
+    const rows = 1;
+    canvas.width = tileW * cols;
+    canvas.height = tileH * rows;
+    const ctx = canvas.getContext('2d')!;
+
+    const colors = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12'];
+    const labels = ['0:00', '0:10', '0:20', '0:30'];
+
+    for (let i = 0; i < cols; i++) {
+        // Background gradient
+        const grad = ctx.createLinearGradient(i * tileW, 0, (i + 1) * tileW, tileH);
+        grad.addColorStop(0, colors[i]);
+        grad.addColorStop(1, colors[(i + 1) % colors.length]);
+        ctx.fillStyle = grad;
+        ctx.fillRect(i * tileW, 0, tileW, tileH);
+
+        // Play icon circle
+        ctx.fillStyle = 'rgba(255,255,255,0.2)';
+        ctx.beginPath();
+        ctx.arc(i * tileW + tileW / 2, tileH / 2 - 10, 30, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Play triangle
+        ctx.fillStyle = 'rgba(255,255,255,0.9)';
+        ctx.beginPath();
+        ctx.moveTo(i * tileW + tileW / 2 - 8, tileH / 2 - 20);
+        ctx.lineTo(i * tileW + tileW / 2 - 8, tileH / 2);
+        ctx.lineTo(i * tileW + tileW / 2 + 12, tileH / 2 - 10);
+        ctx.closePath();
+        ctx.fill();
+
+        // Time label
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 24px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(labels[i], i * tileW + tileW / 2, tileH - 30);
+    }
+
+    return canvas.toDataURL('image/jpeg', 0.8);
+}
 
 export interface CustomSubtitleTrack {
   id: string;
@@ -38,8 +86,28 @@ export const VideoPlayer = ({ src, poster, autoplay, subtitles, onEnded }: Playe
 
     const setupPlugins = async () => {
       try {
-        // 1. Install plugins first (HLS plugin now auto-imports hls.js)
-        await player.usePlugin(createHlsPlugin());
+        // 1. Install Shaka plugin (supports HLS + DASH)
+        await player.usePlugin(createShakaPlugin({
+          shakaConfig: {
+            streaming: { bufferingGoal: 60 },
+            abr: { enabled: true },
+          }
+        }));
+
+        // 2. Install thumbnail preview plugin with inline mock sprite sheet
+        // This creates a working demo without needing external sprite sheets
+        const mockSpriteUrl = generateMockSpriteSheet();
+        await player.usePlugin(createVttThumbnailPlugin({
+          sprites: [{
+            url: mockSpriteUrl,
+            width: 640,   // 4 tiles x 160px
+            height: 180,  // 1 row x 180px
+            tileWidth: 160,
+            tileHeight: 180,
+            interval: 10
+          }]
+        }));
+
         const controls = (await player.usePlugin(createControls())) as Controls;
         await player.usePlugin(createGestures());
 

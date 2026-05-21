@@ -30,6 +30,7 @@ class VttThumbnailPlugin implements PlayerPluginInstance, ThumbnailPlugin {
     private vttEntries: VttEntry[] = [];
     private cors: string;
     private isLoaded = false;
+    private vttBaseUrl = "";
 
     constructor(
         private player: IPlayer,
@@ -54,9 +55,10 @@ class VttThumbnailPlugin implements PlayerPluginInstance, ThumbnailPlugin {
 
     async loadVttFile(url: string): Promise<void> {
         try {
+            this.vttBaseUrl = url.substring(0, url.lastIndexOf("/") + 1);
             const response = await fetch(url);
             const text = await response.text();
-            this.vttEntries = parseVtt(text);
+            this.vttEntries = parseVtt(text, this.vttBaseUrl);
 
             for (const entry of this.vttEntries) {
                 if (entry.imageUrl && !this.sprites.some(s => s.url === entry.imageUrl)) {
@@ -144,7 +146,7 @@ interface VttEntry {
     height?: number;
 }
 
-function parseVtt(text: string): VttEntry[] {
+function parseVtt(text: string, baseUrl: string): VttEntry[] {
     const entries: VttEntry[] = [];
     const lines = text.split(/\r?\n/);
     let i = 0;
@@ -171,7 +173,7 @@ function parseVtt(text: string): VttEntry[] {
         i++;
 
         if (contentLine) {
-            const parsed = parseContentLine(contentLine);
+            const parsed = parseContentLine(contentLine, baseUrl);
             if (parsed) {
                 entries.push({ start, end, ...parsed });
             }
@@ -189,11 +191,13 @@ function parseTimestamp(ts: string): number {
     return h * 3600 + m * 60 + s;
 }
 
-function parseContentLine(line: string): { imageUrl: string; x: number; y: number; width?: number; height?: number } | null {
+function parseContentLine(line: string, baseUrl: string): { imageUrl: string; x: number; y: number; width?: number; height?: number } | null {
     const xywhMatch = line.match(/^(.+?)#xywh=(\d+),(\d+),(\d+)(?:,(\d+))?$/);
     if (xywhMatch) {
+        const rawUrl = xywhMatch[1].trim();
+        const imageUrl = resolveUrl(rawUrl, baseUrl);
         return {
-            imageUrl: xywhMatch[1].trim(),
+            imageUrl,
             x: parseInt(xywhMatch[2], 10),
             y: parseInt(xywhMatch[3], 10),
             width: parseInt(xywhMatch[4], 10),
@@ -203,12 +207,25 @@ function parseContentLine(line: string): { imageUrl: string; x: number; y: numbe
 
     const simpleMatch = line.match(/^(.+?)\s*$/);
     if (simpleMatch) {
+        const rawUrl = simpleMatch[1].trim();
+        const imageUrl = resolveUrl(rawUrl, baseUrl);
         return {
-            imageUrl: simpleMatch[1].trim(),
+            imageUrl,
             x: 0,
             y: 0,
         };
     }
 
     return null;
+}
+
+function resolveUrl(url: string, base: string): string {
+    if (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("//")) {
+        return url;
+    }
+    if (url.startsWith("/")) {
+        const urlObj = new URL(base);
+        return `${urlObj.protocol}//${urlObj.host}${url}`;
+    }
+    return base + url;
 }

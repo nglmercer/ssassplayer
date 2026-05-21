@@ -63,9 +63,11 @@ export class Controls implements PlayerPluginInstance {
     private progressLoaded!: HTMLElement;
     private scrubber!: HTMLElement;
     private previewTooltip!: HTMLElement;
-    private previewThumbnail!: HTMLElement;
+    private previewThumbnail!: HTMLImageElement;
     private previewTime!: HTMLElement;
     private playBtn!: HTMLElement;
+    private loadedThumbnailUrls = new Set<string>();
+    private currentThumbnailUrl: string | null = null;
     private muteBtn!: HTMLElement;
     private volRange!: HTMLInputElement;
     private timeDisplay!: HTMLElement;
@@ -155,8 +157,13 @@ export class Controls implements PlayerPluginInstance {
         this.previewTooltip = document.createElement("div");
         this.previewTooltip.className = "preview-tooltip";
 
-        this.previewThumbnail = document.createElement("div");
+        this.previewThumbnail = document.createElement("img");
         this.previewThumbnail.className = "preview-thumbnail";
+        this.previewThumbnail.crossOrigin = "anonymous";
+        this.previewThumbnail.decoding = "async";
+        this.previewThumbnail.onerror = () => {
+            this.previewTooltip.classList.add('no-thumbnail');
+        };
 
         this.previewTime = document.createElement("div");
         this.previewTime.className = "preview-time";
@@ -444,11 +451,20 @@ export class Controls implements PlayerPluginInstance {
             const thumbWidth = thumbnail.width || 160;
             const thumbHeight = thumbnail.height || 90;
 
+            if (thumbnail.url !== this.currentThumbnailUrl) {
+                this.currentThumbnailUrl = thumbnail.url;
+                if (!this.loadedThumbnailUrls.has(thumbnail.url)) {
+                    this.loadedThumbnailUrls.add(thumbnail.url);
+                    this.previewThumbnail.src = thumbnail.url;
+                } else {
+                    this.previewThumbnail.src = thumbnail.url;
+                }
+            }
+
             this.previewThumbnail.style.width = `${thumbWidth}px`;
             this.previewThumbnail.style.height = `${thumbHeight}px`;
-            this.previewThumbnail.style.backgroundImage = `url('${thumbnail.url}')`;
-            this.previewThumbnail.style.backgroundSize = `${thumbWidth * 10}px ${thumbHeight * 10}px`;
-            this.previewThumbnail.style.backgroundPosition = `-${thumbnail.x}px -${thumbnail.y}px`;
+            this.previewThumbnail.style.objectFit = 'none';
+            this.previewThumbnail.style.objectPosition = `-${thumbnail.x}px -${thumbnail.y}px`;
 
             this.previewTooltip.style.left = `${pos * 100}%`;
             this.previewTooltip.style.opacity = '1';

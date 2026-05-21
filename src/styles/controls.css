@@ -141,12 +141,12 @@
     }
 
     .preview-thumbnail {
-        background-size: auto;
-        background-repeat: no-repeat;
         border-radius: 4px;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
         border: 2px solid rgba(255, 255, 255, 0.1);
         display: block;
+        object-fit: none;
+        image-rendering: auto;
     }
 
     .preview-time {
