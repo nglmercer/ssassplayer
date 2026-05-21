@@ -122,6 +122,57 @@
     .progress-container:hover .scrubber {
         transform: translateY(-50%) scale(1);
     }
+
+    /* Hover Preview Tooltip */
+    .preview-tooltip {
+        position: absolute;
+        bottom: 100%;
+        left: 0;
+        transform: translateX(-50%);
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.15s ease;
+        z-index: 10;
+        margin-bottom: 8px;
+    }
+
+    .progress-container:hover .preview-tooltip {
+        opacity: 1;
+    }
+
+    .preview-thumbnail {
+        border-radius: 4px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+        border: 2px solid rgba(255, 255, 255, 0.1);
+        display: block;
+        object-fit: none;
+        image-rendering: auto;
+    }
+
+    .preview-time {
+        position: absolute;
+        bottom: -24px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0, 0, 0, 0.85);
+        color: #fff;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-size: 12px;
+        font-weight: 600;
+        font-family: monospace;
+        white-space: nowrap;
+        letter-spacing: 0.02em;
+    }
+
+    /* Fallback when no thumbnails available */
+    .preview-tooltip.no-thumbnail .preview-thumbnail {
+        display: none;
+    }
+
+    .preview-tooltip.no-thumbnail .preview-time {
+        bottom: 0;
+    }
 }
 
 /* Buttons - Polished */

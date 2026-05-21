@@ -62,7 +62,12 @@ export class Controls implements PlayerPluginInstance {
     private progressPlayed!: HTMLElement;
     private progressLoaded!: HTMLElement;
     private scrubber!: HTMLElement;
+    private previewTooltip!: HTMLElement;
+    private previewThumbnail!: HTMLImageElement;
+    private previewTime!: HTMLElement;
     private playBtn!: HTMLElement;
+    private loadedThumbnailUrls = new Set<string>();
+    private currentThumbnailUrl: string | null = null;
     private muteBtn!: HTMLElement;
     private volRange!: HTMLInputElement;
     private timeDisplay!: HTMLElement;
@@ -148,11 +153,31 @@ export class Controls implements PlayerPluginInstance {
         this.scrubber = document.createElement("div");
         this.scrubber.className = "scrubber";
 
+        // Preview Tooltip
+        this.previewTooltip = document.createElement("div");
+        this.previewTooltip.className = "preview-tooltip";
+
+        this.previewThumbnail = document.createElement("img");
+        this.previewThumbnail.className = "preview-thumbnail";
+        this.previewThumbnail.crossOrigin = "anonymous";
+        this.previewThumbnail.decoding = "async";
+        this.previewThumbnail.onerror = () => {
+            this.previewTooltip.classList.add('no-thumbnail');
+        };
+
+        this.previewTime = document.createElement("div");
+        this.previewTime.className = "preview-time";
+        this.previewTime.textContent = "0:00";
+
+        this.previewTooltip.appendChild(this.previewThumbnail);
+        this.previewTooltip.appendChild(this.previewTime);
+
         this.progressBar.appendChild(this.progressLoaded);
         this.progressBar.appendChild(this.progressPlayed);
         this.progressPlayed.appendChild(this.scrubber);
 
         this.progressContainer.appendChild(this.progressBar);
+        this.progressContainer.appendChild(this.previewTooltip);
         progRow.appendChild(this.progressContainer);
         controls.appendChild(progRow);
 
@@ -268,6 +293,15 @@ export class Controls implements PlayerPluginInstance {
 
         // Seeking
         let isDragging = false;
+
+        // Hover Preview
+        this.progressContainer.addEventListener('mousemove', (e) => {
+            this.showPreview(e.clientX);
+        });
+
+        this.progressContainer.addEventListener('mouseleave', () => {
+            this.previewTooltip.style.opacity = '0';
+        });
 
         const updateScrubber = (clientX: number) => {
             const rect = this.progressContainer.getBoundingClientRect();
@@ -400,6 +434,47 @@ export class Controls implements PlayerPluginInstance {
                 this.timeDisplay.textContent = `-${formatTime(remaining)} / ${formatTime(d)}`;
                 break;
         }
+    }
+
+    private showPreview(clientX: number) {
+        const rect = this.progressContainer.getBoundingClientRect();
+        const pos = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+        const duration = this.player.getState().duration || 0;
+        const time = pos * duration;
+
+        const thumbnailProvider = this.player.getAPI().getThumbnailProvider();
+        const thumbnail = thumbnailProvider?.getThumbnailAtTime(time);
+
+        if (thumbnail && thumbnail.url) {
+            this.previewTooltip.classList.remove('no-thumbnail');
+
+            const thumbWidth = thumbnail.width || 160;
+            const thumbHeight = thumbnail.height || 90;
+
+            if (thumbnail.url !== this.currentThumbnailUrl) {
+                this.currentThumbnailUrl = thumbnail.url;
+                if (!this.loadedThumbnailUrls.has(thumbnail.url)) {
+                    this.loadedThumbnailUrls.add(thumbnail.url);
+                    this.previewThumbnail.src = thumbnail.url;
+                } else {
+                    this.previewThumbnail.src = thumbnail.url;
+                }
+            }
+
+            this.previewThumbnail.style.width = `${thumbWidth}px`;
+            this.previewThumbnail.style.height = `${thumbHeight}px`;
+            this.previewThumbnail.style.objectFit = 'none';
+            this.previewThumbnail.style.objectPosition = `-${thumbnail.x}px -${thumbnail.y}px`;
+
+            this.previewTooltip.style.left = `${pos * 100}%`;
+            this.previewTooltip.style.opacity = '1';
+        } else {
+            this.previewTooltip.classList.add('no-thumbnail');
+            this.previewTooltip.style.left = `${pos * 100}%`;
+            this.previewTooltip.style.opacity = '1';
+        }
+
+        this.previewTime.textContent = formatTime(time);
     }
 
     private showFeedback(iconContent: string | HTMLElement) {
