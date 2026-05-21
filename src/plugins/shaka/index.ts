@@ -1,3 +1,4 @@
+import type shaka from "shaka-player/dist/shaka-player.compiled";
 import type {
     IPlayer,
     PluginAPI,
@@ -12,8 +13,8 @@ import type {
 } from "../../types";
 
 export interface ShakaPlayerOptions {
-    shakaConfig?: Record<string, unknown>;
-    shaka?: unknown;
+    shakaConfig?: Partial<shaka.extern.PlayerConfiguration>;
+    shaka?: typeof shaka;
 }
 
 export function createShakaPlugin(options: ShakaPlayerOptions = {}): PluginManifest {
@@ -27,14 +28,17 @@ export function createShakaPlugin(options: ShakaPlayerOptions = {}): PluginManif
     };
 }
 
+type ShakaTrack = shaka.extern.Track;
+type ShakaTextTrack = shaka.extern.TextTrack;
+type ShakaError = shaka.util.Error;
+
 class ShakaPlugin implements PlayerPluginInstance {
-    private shakaInstance: unknown = null;
-    private shakaModule: unknown = null;
+    private shakaInstance: shaka.Player | null = null;
+    private shakaModule: typeof shaka | null = null;
     private qualityCallback: ((level: QualityLevel) => void) | null = null;
     private audioTrackCallback: ((track: AudioTrack) => void) | null = null;
     private textTrackCallback: ((track: TextTrack | null) => void) | null = null;
     private cleanupListeners: (() => void)[] = [];
-    private currentTextTracks: TextTrack[] = [];
 
     constructor(
         private player: IPlayer,
@@ -46,46 +50,49 @@ class ShakaPlugin implements PlayerPluginInstance {
     async install() {
         let shakaModule = this.options.shaka;
 
-        if (!shakaModule && typeof window !== 'undefined' && (window as any).shaka) {
-            shakaModule = (window as any).shaka;
+        if (!shakaModule && typeof window !== "undefined") {
+            const globalWindow = window as typeof window & { shaka?: typeof shaka };
+            if (globalWindow.shaka) {
+                shakaModule = globalWindow.shaka;
+            }
         }
 
         if (!shakaModule) {
             try {
-                const mod = await import(/* @vite-ignore */ "shaka-player" as string);
-                shakaModule = (mod as any).default || mod;
+                const mod = await import("shaka-player/dist/shaka-player.compiled" as string);
+                shakaModule = (mod as { default?: typeof shaka }).default ?? mod;
                 console.log("Shaka Plugin: Auto-imported shaka-player");
             } catch (e) {
                 console.warn("Shaka Plugin: shaka-player not available. Install it with: npm install shaka-player");
             }
         }
 
-        this.shakaModule = shakaModule || null;
+        this.shakaModule = shakaModule ?? null;
 
         if (!shakaModule) {
             console.warn("Shaka Plugin: No shaka-player available");
             return;
         }
 
-        const shaka = shakaModule as any;
-        shaka.polyfill.installAll();
+        shakaModule.polyfill.installAll();
 
-        if (!shaka.Player.isBrowserSupported()) {
+        if (!shakaModule.Player.isBrowserSupported()) {
             console.warn("Shaka Plugin: Browser not supported");
             return;
         }
 
         const video = this.player.media as HTMLVideoElement;
 
-        this.shakaInstance = new shaka.Player();
-        (this.shakaInstance as any).attach(video);
+        this.shakaInstance = new shakaModule.Player();
+        this.shakaInstance.attach(video);
 
         if (this.options.shakaConfig) {
-            (this.shakaInstance as any).configure(this.options.shakaConfig);
+            this.shakaInstance.configure(this.options.shakaConfig);
         }
 
-        (this.shakaInstance as any).addEventListener('error', (event: any) => {
-            console.error("Shaka Error:", event.detail);
+        this.shakaInstance.addEventListener("error", (event: Event) => {
+            const shakaEvent = event as CustomEvent<ShakaError>;
+            console.error("Shaka Error:", shakaEvent.detail);
         });
 
         this.setupQualityProvider();
@@ -95,7 +102,7 @@ class ShakaPlugin implements PlayerPluginInstance {
         const removeListener = this.player.on("sourcechange", (url: string) => {
             if (this.shakaInstance) {
                 console.log("Shaka: Loading source", url);
-                (this.shakaInstance as any).load(url).catch((error: any) => {
+                this.shakaInstance.load(url).catch((error: unknown) => {
                     console.error("Shaka: Load error", error);
                 });
             }
@@ -104,7 +111,7 @@ class ShakaPlugin implements PlayerPluginInstance {
 
         const currentSrc = this.player.currentSource || video.src;
         if (currentSrc && (currentSrc.includes(".m3u8") || currentSrc.includes(".mpd"))) {
-            (this.shakaInstance as any).load(currentSrc).catch((error: any) => {
+            this.shakaInstance.load(currentSrc).catch((error: unknown) => {
                 console.error("Shaka: Initial load error", error);
             });
         }
@@ -114,18 +121,18 @@ class ShakaPlugin implements PlayerPluginInstance {
         const provider: QualityPlugin = {
             getAvailableQualities: () => {
                 if (!this.shakaInstance) return [];
-                const tracks = (this.shakaInstance as any).getVariantTracks() as any[];
+                const tracks = this.shakaInstance.getVariantTracks();
                 const qualities: Map<number, QualityLevel> = new Map();
 
-                tracks.forEach((track: any) => {
+                tracks.forEach((track: ShakaTrack) => {
                     if (track.height && !qualities.has(track.height)) {
                         qualities.set(track.height, {
                             id: track.height,
                             label: `${track.height}p`,
                             bitrate: track.bandwidth,
-                            width: track.width,
+                            width: track.width ?? 0,
                             height: track.height,
-                            codec: track.videoCodec,
+                            codec: track.videoCodec ?? "",
                         });
                     }
                 });
@@ -139,13 +146,13 @@ class ShakaPlugin implements PlayerPluginInstance {
                 if (!this.shakaInstance) return;
                 const id = Number(levelId);
                 if (id === -1) {
-                    (this.shakaInstance as any).configure({ abr: { enabled: true } });
+                    this.shakaInstance.configure({ abr: { enabled: true } });
                 } else {
-                    (this.shakaInstance as any).configure({ abr: { enabled: false } });
-                    const tracks = (this.shakaInstance as any).getVariantTracks() as any[];
-                    const selected = tracks.find((t: any) => t.height === id);
+                    this.shakaInstance.configure({ abr: { enabled: false } });
+                    const tracks = this.shakaInstance.getVariantTracks();
+                    const selected = tracks.find((t: ShakaTrack) => t.height === id);
                     if (selected) {
-                        (this.shakaInstance as any).selectVariantTrack(selected, true);
+                        this.shakaInstance.selectVariantTrack(selected, true);
                     }
                 }
             },
@@ -157,7 +164,7 @@ class ShakaPlugin implements PlayerPluginInstance {
 
         if (this.shakaInstance) {
             const video = this.player.media as HTMLVideoElement;
-            video.addEventListener('adaptation', () => {
+            video.addEventListener("adaptation", () => {
                 if (this.qualityCallback) {
                     const current = this.getCurrentQuality();
                     if (current) this.qualityCallback(current);
@@ -170,16 +177,16 @@ class ShakaPlugin implements PlayerPluginInstance {
         const provider: AudioTrackPlugin = {
             getAudioTracks: () => {
                 if (!this.shakaInstance) return [];
-                const tracks = (this.shakaInstance as any).getVariantTracks() as any[];
+                const tracks = this.shakaInstance.getVariantTracks();
                 const audioMap: Map<string, AudioTrack> = new Map();
 
-                tracks.forEach((track: any) => {
+                tracks.forEach((track: ShakaTrack) => {
                     if (track.language) {
                         const key = track.language;
                         if (!audioMap.has(key)) {
                             audioMap.set(key, {
                                 id: key,
-                                label: track.label || track.language,
+                                label: track.label ?? track.language,
                                 language: track.language,
                                 enabled: track.active,
                             });
@@ -191,20 +198,20 @@ class ShakaPlugin implements PlayerPluginInstance {
             },
             setActiveTrack: (trackId: string) => {
                 if (!this.shakaInstance) return;
-                const tracks = (this.shakaInstance as any).getVariantTracks() as any[];
-                const selected = tracks.find((t: any) => t.language === trackId);
+                const tracks = this.shakaInstance.getVariantTracks();
+                const selected = tracks.find((t: ShakaTrack) => t.language === trackId);
                 if (selected) {
-                    (this.shakaInstance as any).selectVariantTrack(selected, true);
+                    this.shakaInstance.selectVariantTrack(selected, true);
                 }
             },
             getActiveTrack: () => {
                 if (!this.shakaInstance) return null;
-                const tracks = (this.shakaInstance as any).getVariantTracks() as any[];
-                const active = tracks.find((t: any) => t.active && t.language);
+                const tracks = this.shakaInstance.getVariantTracks();
+                const active = tracks.find((t: ShakaTrack) => t.active && t.language);
                 if (!active) return null;
                 return {
                     id: active.language,
-                    label: active.label || active.language,
+                    label: active.label ?? active.language,
                     language: active.language,
                     enabled: true,
                 };
@@ -217,7 +224,7 @@ class ShakaPlugin implements PlayerPluginInstance {
         this.api.registerAudioTrackProvider(provider);
 
         if (this.shakaInstance) {
-            (this.shakaInstance as any).addEventListener('variantchanged', () => {
+            this.shakaInstance.addEventListener("variantchanged", () => {
                 if (this.audioTrackCallback) {
                     const track = provider.getActiveTrack();
                     if (track) this.audioTrackCallback(track);
@@ -234,52 +241,49 @@ class ShakaPlugin implements PlayerPluginInstance {
         const provider: TextTrackPlugin = {
             getTextTracks: () => {
                 if (!this.shakaInstance) return [];
-                const tracks = (this.shakaInstance as any).getTextTracks() as any[];
-                this.currentTextTracks = tracks.map((track: any, index: number) => ({
-                    id: String(track.id || index),
-                    label: track.label || track.language || `Subtitle ${index}`,
-                    language: track.language || 'unknown',
-                    kind: track.kind as TextTrack['kind'] || 'subtitles',
+                const tracks = this.shakaInstance.getTextTracks();
+                return tracks.map((track: ShakaTextTrack, index: number) => ({
+                    id: String(track.id ?? index),
+                    label: track.label ?? track.language ?? `Subtitle ${index}`,
+                    language: track.language ?? "unknown",
+                    kind: (track.kind ?? "subtitles") as TextTrack["kind"],
                     active: track.active,
                 }));
-                return this.currentTextTracks;
             },
             addTrack: (track) => {
                 if (!this.shakaInstance || !track.src) return "";
-                (this.shakaInstance as any).addTextTrack(track.src, track.label, track.language, track.kind);
-                return track.id || "";
+                this.shakaInstance.addTextTrackAsync(track.src, track.language, track.kind ?? "subtitles")
+                    .catch((error: unknown) => {
+                        console.error("Shaka: Failed to add text track", error);
+                    });
+                return track.id ?? "";
             },
-            removeTrack: (trackId: string) => {
-                if (!this.shakaInstance) return;
-                const tracks = (this.shakaInstance as any).getTextTracks() as any[];
-                const track = tracks.find((t: any) => String(t.id) === trackId);
-                if (track) {
-                    (this.shakaInstance as any).removeTextTrack(track);
-                }
+            removeTrack: (_trackId: string) => {
+                console.warn("Shaka: removeTextTrack is not supported by Shaka Player");
             },
             setActiveTrack: (trackId: string | null) => {
                 if (!this.shakaInstance) return;
-                const tracks = (this.shakaInstance as any).getTextTracks() as any[];
+                const tracks = this.shakaInstance.getTextTracks();
                 if (trackId === null) {
-                    (this.shakaInstance as any).setTextTrackVisibility(false);
+                    this.shakaInstance.setTextTrackVisibility(false);
                 } else {
-                    const track = tracks.find((t: any) => String(t.id) === trackId);
+                    const track = tracks.find((t: ShakaTextTrack) => String(t.id) === trackId);
                     if (track) {
-                        (this.shakaInstance as any).selectTextTrack(track);
-                        (this.shakaInstance as any).setTextTrackVisibility(true);
+                        this.shakaInstance.selectTextTrack(track);
+                        this.shakaInstance.setTextTrackVisibility(true);
                     }
                 }
             },
             getActiveTrack: () => {
                 if (!this.shakaInstance) return null;
-                const tracks = (this.shakaInstance as any).getTextTracks() as any[];
-                const active = tracks.find((t: any) => t.active);
+                const tracks = this.shakaInstance.getTextTracks();
+                const active = tracks.find((t: ShakaTextTrack) => t.active);
                 if (!active) return null;
                 return {
                     id: String(active.id),
-                    label: active.label || active.language || 'Subtitle',
-                    language: active.language || 'unknown',
-                    kind: active.kind as TextTrack['kind'] || 'subtitles',
+                    label: active.label ?? active.language ?? "Subtitle",
+                    language: active.language ?? "unknown",
+                    kind: (active.kind ?? "subtitles") as TextTrack["kind"],
                     active: true,
                 };
             },
@@ -291,14 +295,14 @@ class ShakaPlugin implements PlayerPluginInstance {
         this.api.registerTextTrackProvider(provider);
 
         if (this.shakaInstance) {
-            (this.shakaInstance as any).addEventListener('textchanged', () => {
+            this.shakaInstance.addEventListener("textchanged", () => {
                 if (this.textTrackCallback) {
                     const track = provider.getActiveTrack();
                     this.textTrackCallback(track);
                 }
             });
 
-            (this.shakaInstance as any).addEventListener('texttrackvisibility', () => {
+            this.shakaInstance.addEventListener("texttrackvisibility", () => {
                 if (this.textTrackCallback) {
                     const track = provider.getActiveTrack();
                     this.textTrackCallback(track);
@@ -309,17 +313,17 @@ class ShakaPlugin implements PlayerPluginInstance {
 
     private getCurrentQuality(): QualityLevel | null {
         if (!this.shakaInstance) return null;
-        const tracks = (this.shakaInstance as any).getVariantTracks() as any[];
-        const active = tracks.find((t: any) => t.active);
+        const tracks = this.shakaInstance.getVariantTracks();
+        const active = tracks.find((t: ShakaTrack) => t.active);
         if (!active) return { id: -1, label: "Auto" };
 
         return {
-            id: active.height || -1,
+            id: active.height ?? -1,
             label: active.height ? `${active.height}p` : "Auto",
             bitrate: active.bandwidth,
-            width: active.width,
-            height: active.height,
-            codec: active.videoCodec,
+            width: active.width ?? 0,
+            height: active.height ?? 0,
+            codec: active.videoCodec ?? "",
         };
     }
 
@@ -327,7 +331,7 @@ class ShakaPlugin implements PlayerPluginInstance {
         this.cleanupListeners.forEach((fn) => fn());
         this.cleanupListeners = [];
         if (this.shakaInstance) {
-            (this.shakaInstance as any).destroy();
+            this.shakaInstance.destroy();
             this.shakaInstance = null;
         }
     }
