@@ -1,9 +1,8 @@
-import {
+import type {
     IPlayer,
     PluginAPI,
     PlayerPluginInstance,
     PluginManifest,
-    TextTrackPlugin,
     TextTrack
 } from "../../types";
 
@@ -28,7 +27,9 @@ interface JASSUBInstance {
 // Declaramos la clase constructora global de JASSUB si se carga via script tag
 declare global {
     interface Window {
-        JASSUB: new (options: any) => JASSUBInstance;
+        // Optional: consumers that never load JASSUB must not be forced to
+        // declare it, and the plugin degrades gracefully when it is absent.
+        JASSUB?: new (options: any) => JASSUBInstance;
     }
 }
 
@@ -56,8 +57,8 @@ class AssPlugin implements PlayerPluginInstance {
     ) { }
 
     install() {
-        // Verificar si JASSUB está cargado
-        if (typeof window.JASSUB === 'undefined') {
+        // Verificar si JASSUB está cargado (y que exista un DOM en absoluto)
+        if (typeof window === 'undefined' || typeof window.JASSUB === 'undefined') {
             console.error("AssPlugin: JASSUB library not found. Please load it via script tag or import.");
             return;
         }
@@ -97,6 +98,7 @@ class AssPlugin implements PlayerPluginInstance {
     }
 
     private trackChangeCallback: ((track: TextTrack | null) => void) | null = null;
+    private loadToken = 0;
 
     private initJassub() {
         const video = this.player.media as HTMLVideoElement;
@@ -106,20 +108,31 @@ class AssPlugin implements PlayerPluginInstance {
         // JASSUB necesita las URLs de los workers.
         // Si no se proveen, JASSUB intentará adivinarlas o fallará dependiendo de la versión.
         try {
-            this.jassub = new window.JASSUB({
+            const JASSUB = window.JASSUB!;
+            // A minimal valid header, used only when the caller supplied neither
+            // `subContent` nor `subUrl`; without it JASSUB reports
+            // "Failed to start a track".
+            const hasCallerTrack =
+                this.options.subContent !== undefined || this.options.subUrl !== undefined;
+
+            this.jassub = new JASSUB({
                 video: video,
-                ...this.options,
-                // Opciones por defecto para mejor rendimiento
-                // Solo activar renderizado asíncrono si el entorno lo soporta (SharedArrayBuffer)
-                asyncRender: (window.crossOriginIsolated) && (this.options.asyncRender !== false),
-                // Forzamos offscreenRender a false para evitar errores de "Detached OffscreenCanvas"
-                // y maximizar compatibilidad, ya que offscreenRender=true puede causar conflictos con el resize en el main thread
-                // en algunas versiones de JASSUB/browser combinaciones.
+                // Defaults first, caller options last: spreading `this.options`
+                // first meant the explicit keys below silently overwrote the
+                // caller's own `subContent` with `undefined`.
+                // Async rendering needs SharedArrayBuffer, i.e. a cross-origin
+                // isolated document.
+                asyncRender: window.crossOriginIsolated === true,
+                // offscreenRender is forced off: combined with main-thread
+                // resizing it triggers "Detached OffscreenCanvas" in some
+                // JASSUB/browser combinations.
                 offscreenRender: false,
                 onDemandRender: true,
                 targetFps: 60,
-                // Usamos un header mínimo válido para evitar "Failed to start a track"
-                subContent: this.options.subContent || this.options.subUrl ? undefined : '[Script Info]\nScriptType: v4.00+\nPlayResX: 384\nPlayResY: 288',
+                ...(hasCallerTrack
+                    ? {}
+                    : { subContent: '[Script Info]\nScriptType: v4.00+\nPlayResX: 384\nPlayResY: 288' }),
+                ...this.options,
             });
 
             // Handle Resize
@@ -135,6 +148,8 @@ class AssPlugin implements PlayerPluginInstance {
 
     private async setActiveTrack(trackId: string | null) {
         this.activeTrackId = trackId;
+        // Fetching a track is async; a newer call must win over an in-flight one.
+        const token = ++this.loadToken;
         const track = this.tracks.find(t => t.id === trackId);
 
         if (this.trackChangeCallback) {
@@ -149,7 +164,9 @@ class AssPlugin implements PlayerPluginInstance {
             // pero setTrack con string vacío suele funcionar
             try {
                 this.jassub.setTrack("");
-            } catch (e) { }
+            } catch (e) {
+                console.warn("AssPlugin: failed to clear the active track", e);
+            }
             return;
         }
 
@@ -158,8 +175,12 @@ class AssPlugin implements PlayerPluginInstance {
         if (track.src) {
             try {
                 const response = await fetch(track.src);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status} loading ${track.src}`);
+                }
                 const content = await response.text();
-                this.jassub.setTrack(content);
+                if (token !== this.loadToken) return; // superseded
+                this.jassub?.setTrack(content);
             } catch (e) {
                 console.error("AssPlugin: Failed to load ASS track", e);
             }
@@ -170,11 +191,16 @@ class AssPlugin implements PlayerPluginInstance {
     }
 
     dispose() {
+        // Invalidate any in-flight track fetch.
+        this.loadToken++;
         if (this.jassub) {
             this.jassub.destroy();
             this.jassub = null;
         }
         this.cleanupListeners.forEach(fn => fn());
+        this.cleanupListeners = [];
         this.tracks = [];
+        this.activeTrackId = null;
+        this.trackChangeCallback = null;
     }
 }

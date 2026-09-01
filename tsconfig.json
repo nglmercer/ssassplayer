@@ -3,13 +3,20 @@
     "target": "ES2020",
     "module": "ESNext",
     "declaration": true,
-    "outDir": "LAST213123",
+    "outDir": "dist",
     "strict": true,
     "skipLibCheck": true,
+    "isolatedModules": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "verbatimModuleSyntax": false,
     "moduleResolution": "Bundler",
     "lib": [
       "ES2020",
-      "DOM"
+      "DOM",
+      "DOM.Iterable"
     ],
     "esModuleInterop": true,
     "resolveJsonModule": true,

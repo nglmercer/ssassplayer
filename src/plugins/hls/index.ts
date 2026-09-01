@@ -9,7 +9,10 @@ import type {
     QualityLevel,
     AudioTrackPlugin,
     AudioTrack,
+    TextTrackPlugin,
+    TextTrack,
 } from "../../types";
+import { isHlsUrl } from "../../utils/media";
 
 export interface HlsPluginOptions {
     hlsConfig?: Partial<HlsConfig>;
@@ -75,7 +78,7 @@ class HlsPlugin implements PlayerPluginInstance {
             this.setupTextTrackProvider();
 
             // Handle HLS events
-            this.hlsInstance!.on(HlsClass.Events.MANIFEST_PARSED, (event, data) => {
+            this.hlsInstance!.on(HlsClass.Events.MANIFEST_PARSED, (_event, data) => {
                 console.log("HLS: Manifest parsed", data);
                 // Trigger quality update
                 if (this.qualityCallback) {
@@ -84,11 +87,11 @@ class HlsPlugin implements PlayerPluginInstance {
                 }
             });
 
-            this.hlsInstance!.on(HlsClass.Events.ERROR, (event, data) => {
+            this.hlsInstance!.on(HlsClass.Events.ERROR, (_event, data) => {
                 console.error("HLS Error:", data);
             });
 
-            this.hlsInstance!.on(HlsClass.Events.LEVEL_SWITCHED, (event, data) => {
+            this.hlsInstance!.on(HlsClass.Events.LEVEL_SWITCHED, () => {
                 if (this.qualityCallback) {
                     const current = this.getCurrentQuality();
                     if (current) this.qualityCallback(current);
@@ -97,7 +100,7 @@ class HlsPlugin implements PlayerPluginInstance {
 
             // Handle source changes from the player
             const removeListener = this.player.on("sourcechange", (url: string) => {
-                if (url.toLowerCase().split('?')[0].endsWith(".m3u8") || url.includes(".m3u8")) {
+                if (isHlsUrl(url)) {
                     if (this.hlsInstance) {
                         console.log("HLS: Loading source", url);
 
@@ -123,7 +126,7 @@ class HlsPlugin implements PlayerPluginInstance {
 
             // Initial check for already set source
             const currentSrc = this.player.currentSource || video.src;
-            if (currentSrc && (currentSrc.includes(".m3u8"))) {
+            if (isHlsUrl(currentSrc)) {
                 if (video.src) {
                     video.removeAttribute('src');
                     video.load();
@@ -206,8 +209,7 @@ class HlsPlugin implements PlayerPluginInstance {
         // Listen for changes
         if (this.hlsInstance) {
             const HlsClass = this.HlsClass;
-            this.hlsInstance.on(HlsClass!.Events.AUDIO_TRACK_SWITCHED, (event, data) => {
-                console.log("HLS: Audio track switched", data);
+            this.hlsInstance.on(HlsClass!.Events.AUDIO_TRACK_SWITCHED, () => {
                 if (this.audioTrackCallback) {
                     const track = provider.getActiveTrack();
                     if (track) this.audioTrackCallback(track);
@@ -216,27 +218,7 @@ class HlsPlugin implements PlayerPluginInstance {
         }
     }
     private setupTextTrackProvider() {
-        // Hls events for subtitles
-        const HlsClass = this.HlsClass;
-
-        // Listen for track updates
-        if (this.hlsInstance) {
-            this.hlsInstance.on(HlsClass!.Events.SUBTITLE_TRACKS_UPDATED, () => {
-                // We might want to emit an event here if the main API supported "tracks changed" events generally
-                // For now, the UI polls getters or we can just rely on manual refresh
-                // But properly, we should re-emit texttrackchange or something similar if the list changes?
-                // The current TextTrackProvider interface assumes static list or callbacks on active track change.
-            });
-
-            this.hlsInstance.on(HlsClass!.Events.SUBTITLE_TRACK_SWITCH, (event, data) => {
-                if (this.textTrackCallback) {
-                    const track = provider.getActiveTrack();
-                    this.textTrackCallback(track);
-                }
-            });
-        }
-
-        const provider: import("../../types").TextTrackPlugin = {
+        const provider: TextTrackPlugin = {
             getTextTracks: () => {
                 if (!this.hlsInstance) return [];
                 return this.hlsInstance.subtitleTracks.map((track, index: number) => ({
@@ -247,13 +229,14 @@ class HlsPlugin implements PlayerPluginInstance {
                     active: this.hlsInstance ? this.hlsInstance.subtitleTrack === index : false
                 }));
             },
-            addTrack: (track) => {
-                // HLS.js doesn't easily support adding external tracks manually mixed with manifest tracks this way
-                // simplified implementation
+            addTrack: () => {
+                // hls.js owns the track list coming from the manifest; external
+                // tracks belong to a dedicated text-track plugin instead.
+                console.warn("HLS Plugin: addTrack() is not supported for manifest-driven subtitle tracks");
                 return "";
             },
-            removeTrack: (trackId) => {
-                // Not supported for HLS manifest tracks
+            removeTrack: () => {
+                console.warn("HLS Plugin: removeTrack() is not supported for manifest-driven subtitle tracks");
             },
             setActiveTrack: (trackId: string | null) => {
                 if (!this.hlsInstance) return;
@@ -278,10 +261,19 @@ class HlsPlugin implements PlayerPluginInstance {
             }
         };
 
+        // Registered and wired only after `provider` exists: the handlers below
+        // used to close over it before its declaration.
         this.api.registerTextTrackProvider(provider);
+
+        const HlsClass = this.HlsClass;
+        if (this.hlsInstance && HlsClass) {
+            this.hlsInstance.on(HlsClass.Events.SUBTITLE_TRACK_SWITCH, () => {
+                this.textTrackCallback?.(provider.getActiveTrack());
+            });
+        }
     }
 
-    private textTrackCallback: ((track: any) => void) | null = null;
+    private textTrackCallback: ((track: TextTrack | null) => void) | null = null;
 
 
     // Helper to get current quality level object
@@ -312,5 +304,8 @@ class HlsPlugin implements PlayerPluginInstance {
             this.hlsInstance.destroy();
             this.hlsInstance = null;
         }
+        this.qualityCallback = null;
+        this.audioTrackCallback = null;
+        this.textTrackCallback = null;
     }
 }

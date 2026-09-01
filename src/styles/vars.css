@@ -1,48 +1,161 @@
-:root {
-    /* Color Palette - Ultra Premium Dark */
-    --ap-bg: #000000;
-    --ap-surface: rgba(18, 18, 18, 0.65);
-    --ap-surface-hover: rgba(35, 35, 35, 0.85);
-    --ap-surface-thick: rgba(28, 28, 28, 0.95);
-    --ap-on-surface: #ffffff;
-    --ap-on-surface-variant: rgba(255, 255, 255, 0.5);
-    --ye-icon-color: var(--ap-on-surface);
-    
-    /* Branding - Vibrant & Smooth */
-    --ap-primary: #ff3e3e;
-    --ap-primary-gradient: linear-gradient(135deg, #ff416c 0%, #ff4b2b 100%);
-    --ap-accent: #00e5ff;
-    --ap-accent-gradient: linear-gradient(135deg, #00c6ff 0%, #0072ff 100%);
-    
-    /* Functional Colors */
-    --ap-scrubber: #ffffff;
-    --ap-progress-loaded: rgba(255, 255, 255, 0.15);
-    --ap-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
-    --ap-outline: rgba(255, 255, 255, 0.08);
+/*
+ * Design tokens.
+ *
+ * Dark is the baseline. The light palette is applied when the OS asks for it —
+ * unless a player pins dark — and either theme can be forced per player with
+ * `data-ap-theme="dark"` / `data-ap-theme="light"`.
+ *
+ * Raw colour values live once, in the `--ap-dark-*` / `--ap-light-*` tokens
+ * below; the theme blocks only remap them, so the two palettes cannot drift.
+ * No rule outside this file branches on the theme.
+ */
 
-    /* Aesthetics */
-    --ap-radius-xl: 24px;
-    --ap-radius-lg: 16px;
-    --ap-radius-md: 12px;
-    --ap-radius-sm: 8px;
-    --ap-blur: blur(20px);
-    --ap-blur-thick: blur(40px);
-    --ap-transition: cubic-bezier(0.2, 0.8, 0.2, 1);
-    
-    /* Layout & Sizing */
+.ap-player {
+    /* ---- Brand -----------------------------------------------------
+       A single accent drives the progress fill, selection state and focus
+       rings. The old palette used a red progress bar against a cyan menu
+       accent, which read as two competing brands. */
+    --ap-accent: #ff3b30;
+    --ap-accent-hover: #ff5f57;
+    --ap-on-accent: #ffffff;
+
+    /* ---- Dark palette ---------------------------------------------- */
+    --ap-dark-surface: rgba(24, 24, 27, 0.94);
+    --ap-dark-surface-hover: rgba(255, 255, 255, 0.11);
+    --ap-dark-surface-active: rgba(255, 255, 255, 0.17);
+    --ap-dark-on-surface: #ffffff;
+    --ap-dark-on-surface-variant: rgba(255, 255, 255, 0.62);
+    --ap-dark-outline: rgba(255, 255, 255, 0.11);
+    --ap-dark-scrim: linear-gradient(to top,
+            rgba(0, 0, 0, 0.86) 0%,
+            rgba(0, 0, 0, 0.62) 32%,
+            rgba(0, 0, 0, 0.24) 66%,
+            rgba(0, 0, 0, 0) 100%);
+    --ap-dark-track: rgba(255, 255, 255, 0.26);
+    --ap-dark-track-hover: rgba(255, 255, 255, 0.40);
+    --ap-dark-track-buffered: rgba(255, 255, 255, 0.46);
+    --ap-dark-scrubber: #ffffff;
+    --ap-dark-shadow: 0 12px 32px rgba(0, 0, 0, 0.46);
+
+    /* ---- Light palette ---------------------------------------------
+       The scrim stays a wash rather than a solid so the video still reads
+       through it; the foreground flips to near-black for contrast. */
+    --ap-light-surface: rgba(252, 252, 253, 0.96);
+    --ap-light-surface-hover: rgba(0, 0, 0, 0.07);
+    --ap-light-surface-active: rgba(0, 0, 0, 0.12);
+    --ap-light-on-surface: #17171a;
+    --ap-light-on-surface-variant: rgba(0, 0, 0, 0.58);
+    --ap-light-outline: rgba(0, 0, 0, 0.12);
+    --ap-light-scrim: linear-gradient(to top,
+            rgba(255, 255, 255, 0.92) 0%,
+            rgba(255, 255, 255, 0.70) 32%,
+            rgba(255, 255, 255, 0.28) 66%,
+            rgba(255, 255, 255, 0) 100%);
+    --ap-light-track: rgba(0, 0, 0, 0.20);
+    --ap-light-track-hover: rgba(0, 0, 0, 0.32);
+    --ap-light-track-buffered: rgba(0, 0, 0, 0.36);
+    --ap-light-scrubber: #17171a;
+    --ap-light-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+
+    /* ---- Active theme: dark by default ------------------------------ */
+    color-scheme: dark;
+    --ap-surface: var(--ap-dark-surface);
+    --ap-surface-hover: var(--ap-dark-surface-hover);
+    --ap-surface-active: var(--ap-dark-surface-active);
+    --ap-on-surface: var(--ap-dark-on-surface);
+    --ap-on-surface-variant: var(--ap-dark-on-surface-variant);
+    --ap-outline: var(--ap-dark-outline);
+    --ap-scrim: var(--ap-dark-scrim);
+    --ap-track: var(--ap-dark-track);
+    --ap-track-hover: var(--ap-dark-track-hover);
+    --ap-track-buffered: var(--ap-dark-track-buffered);
+    --ap-scrubber: var(--ap-dark-scrubber);
+    --ap-shadow: var(--ap-dark-shadow);
+
+    /* Text and icons sitting on the scrim share the surface foreground. */
+    --ap-on-scrim: var(--ap-on-surface);
+    --ap-on-scrim-variant: var(--ap-on-surface-variant);
+
+    /* Icons inherit whatever surface they are drawn on, so no icon token
+       needs to change per theme. */
+    --ap-icon-color: currentColor;
+    --ye-icon-color: var(--ap-icon-color);
+
+    /* ---- Shape & motion --------------------------------------------- */
+    --ap-radius-xl: 18px;
+    --ap-radius-lg: 14px;
+    --ap-radius-md: 10px;
+    --ap-radius-sm: 6px;
+    --ap-blur: blur(12px);
+    --ap-blur-thick: blur(24px);
+    --ap-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+    /* ---- Layout ------------------------------------------------------ */
     --ap-progress-height: 4px;
-    --ap-progress-hover: 6px;
-    --ap-controls-height: 48px;
+    --ap-progress-hover: 7px;
+    --ap-controls-height: 46px;
+    --ap-scrim-height: 64px;
     --ap-btn-size: 36px;
-    --ap-padding: 16px;
+    --ap-icon-size: 22px;
+    --ap-padding: 12px;
+    --ap-player-shadow: none;
 
-    /* Scalability */
-    --ap-scale: 1;
+    /* ---- Back-compat aliases ----------------------------------------
+       Kept so stylesheets written against the previous token names keep
+       resolving. New code should use the names above. */
+    --ap-bg: #000000;
+    --ap-primary: var(--ap-accent);
+    --ap-primary-gradient: var(--ap-accent);
+    --ap-accent-gradient: var(--ap-accent);
+    --ap-surface-thick: var(--ap-surface);
+    --ap-progress-loaded: var(--ap-track-buffered);
+    --ap-transition: var(--ap-ease);
 }
 
-@media (max-width: 768px) {
-    :root {
-        --ap-scale: 1.2;
-        --ap-controls-height: 72px;
+/* Follow the OS, unless this player pins dark. */
+@media (prefers-color-scheme: light) {
+    .ap-player:not([data-ap-theme="dark"]) {
+        color-scheme: light;
+        --ap-surface: var(--ap-light-surface);
+        --ap-surface-hover: var(--ap-light-surface-hover);
+        --ap-surface-active: var(--ap-light-surface-active);
+        --ap-on-surface: var(--ap-light-on-surface);
+        --ap-on-surface-variant: var(--ap-light-on-surface-variant);
+        --ap-outline: var(--ap-light-outline);
+        --ap-scrim: var(--ap-light-scrim);
+        --ap-track: var(--ap-light-track);
+        --ap-track-hover: var(--ap-light-track-hover);
+        --ap-track-buffered: var(--ap-light-track-buffered);
+        --ap-scrubber: var(--ap-light-scrubber);
+        --ap-shadow: var(--ap-light-shadow);
+    }
+}
+
+/* Explicit opt-in, which also wins over the media query above. */
+.ap-player[data-ap-theme="light"] {
+    color-scheme: light;
+    --ap-surface: var(--ap-light-surface);
+    --ap-surface-hover: var(--ap-light-surface-hover);
+    --ap-surface-active: var(--ap-light-surface-active);
+    --ap-on-surface: var(--ap-light-on-surface);
+    --ap-on-surface-variant: var(--ap-light-on-surface-variant);
+    --ap-outline: var(--ap-light-outline);
+    --ap-scrim: var(--ap-light-scrim);
+    --ap-track: var(--ap-light-track);
+    --ap-track-hover: var(--ap-light-track-hover);
+    --ap-track-buffered: var(--ap-light-track-buffered);
+    --ap-scrubber: var(--ap-light-scrubber);
+    --ap-shadow: var(--ap-light-shadow);
+}
+
+/* Touch and small viewports: larger hit targets, taller control row. */
+@media (pointer: coarse), (max-width: 640px) {
+    .ap-player {
+        --ap-btn-size: 44px;
+        --ap-icon-size: 24px;
+        --ap-controls-height: 56px;
+        --ap-progress-height: 5px;
+        --ap-progress-hover: 8px;
+        --ap-padding: 8px;
     }
 }

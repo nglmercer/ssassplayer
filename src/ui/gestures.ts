@@ -1,8 +1,21 @@
 import { Player } from '../player';
-import { IPlayer, PluginAPI, PlayerPluginInstance, PluginManifest } from "../types";
+import type { IPlayer, PluginAPI, PlayerPluginInstance, PluginManifest } from "../types";
 import { ICONS, createSVG } from "./icons";
 
-export interface GestureOptions { skipSeconds?: number; speedBoost?: number }
+export interface GestureOptions {
+  /** Seconds skipped by a double-tap / the J and L keys. Default 10. */
+  skipSeconds?: number;
+  /** Playback rate applied while pressing and holding. Default 2. */
+  speedBoost?: number;
+  /** Bind the document-level keyboard shortcuts. Default true. */
+  enableKeyboardShortcuts?: boolean;
+  /**
+   * Show the floating fullscreen button in the top-right corner. Default true.
+   * The Controls plugin already renders a fullscreen button, so set this to
+   * false when using both to avoid offering the same action twice.
+   */
+  showFullscreenButton?: boolean;
+}
 
 export function createGestures(options: GestureOptions = {}): PluginManifest {
     return {
@@ -23,14 +36,23 @@ export class Gestures implements PlayerPluginInstance {
   private lastTap = 0;
   private lastTapX = 0;
   private isPointerDown = false;
-  private tapTimer: number | null = null;
-  private pressTimer: number | null = null;
+  private tapTimer: ReturnType<typeof setTimeout> | null = null;
+  private pressTimer: ReturnType<typeof setTimeout> | null = null;
   private pressedBoost = false;
-  private centerTimer: number | null = null;
+  private centerTimer: ReturnType<typeof setTimeout> | null = null;
+  private skipTimers = new Map<'left' | 'right', ReturnType<typeof setTimeout>>();
+  /** Aborts every DOM listener this plugin registers. */
+  private listeners = new AbortController();
+  private unsubscribes: Array<() => void> = [];
 
-  constructor(player: Player, api: PluginAPI, opts: GestureOptions = {}) {
+  constructor(player: Player, _api: PluginAPI, opts: GestureOptions = {}) {
     this.player = player;
-    this.opts = { skipSeconds: opts.skipSeconds ?? 10, speedBoost: opts.speedBoost ?? 2 };
+    this.opts = {
+      skipSeconds: opts.skipSeconds ?? 10,
+      speedBoost: opts.speedBoost ?? 2,
+      enableKeyboardShortcuts: opts.enableKeyboardShortcuts ?? true,
+      showFullscreenButton: opts.showFullscreenButton ?? true,
+    };
   }
 
   async install() {
@@ -48,29 +70,51 @@ export class Gestures implements PlayerPluginInstance {
 
     this.fsBtn.appendChild(createSVG(ICONS.fullscreen));
     this.fsBtn.type = 'button';
-    this.fsBtn.onclick = () => { const s = this.player.getState().fullscreen; if (s) this.player.exitFullscreen(); else this.player.requestFullscreen(); };
+    this.fsBtn.setAttribute('aria-label', 'Fullscreen');
+    this.fsBtn.onclick = () => {
+      if (this.player.getState().fullscreen) this.player.exitFullscreen();
+      else this.player.requestFullscreen();
+    };
 
     root.appendChild(this.center);
     root.appendChild(this.left);
     root.appendChild(this.right);
-    root.appendChild(this.fsBtn);
+    if (this.opts.showFullscreenButton) root.appendChild(this.fsBtn);
 
     this.bind();
-    this.bindKeyboard();
+    if (this.opts.enableKeyboardShortcuts) this.bindKeyboard();
   }
 
   dispose() {
-    if (this.center && this.center.parentNode) this.center.parentNode.removeChild(this.center);
-    if (this.left && this.left.parentNode) this.left.parentNode.removeChild(this.left);
-    if (this.right && this.right.parentNode) this.right.parentNode.removeChild(this.right);
-    if (this.fsBtn && this.fsBtn.parentNode) this.fsBtn.parentNode.removeChild(this.fsBtn);
+    // The pointer and document-level keyboard listeners would otherwise keep
+    // driving a disposed player.
+    this.listeners.abort();
+    for (const off of this.unsubscribes) off();
+    this.unsubscribes = [];
+
+    for (const timer of [this.pressTimer, this.tapTimer, this.centerTimer]) {
+      if (timer) clearTimeout(timer);
+    }
+    this.pressTimer = this.tapTimer = this.centerTimer = null;
+    for (const timer of this.skipTimers.values()) clearTimeout(timer);
+    this.skipTimers.clear();
+
+    // A long-press that was still active must not leave the rate boosted.
+    if (this.pressedBoost) {
+      this.pressedBoost = false;
+      this.player.setRate(1);
+    }
+
+    for (const el of [this.center, this.left, this.right, this.fsBtn]) el?.remove();
   }
 
   private bind() {
     const area = this.player.media || this.player.getContainer();
 
+    const { signal } = this.listeners;
+
     // Listen to player volume changes to update feedback
-    this.player.on('volumechange', (vol, muted) => {
+    this.unsubscribes.push(this.player.on('volumechange', (vol, muted) => {
       if (muted || vol === 0) {
         this.showCenter(ICONS.volumeMute);
       } else if (vol < 0.5) {
@@ -78,25 +122,25 @@ export class Gestures implements PlayerPluginInstance {
       } else {
         this.showCenter(ICONS.volumeHigh);
       }
-    });
+    }));
 
-    area.addEventListener('pointerdown', e => {
+    area.addEventListener('pointerdown', () => {
       this.isPointerDown = true;
-      if (this.pressTimer) window.clearTimeout(this.pressTimer);
-      this.pressTimer = window.setTimeout(() => {
+      if (this.pressTimer) clearTimeout(this.pressTimer);
+      this.pressTimer = setTimeout(() => {
         this.pressedBoost = true;
         const rate0 = this.player.getState().playbackRate;
         this.player.setRate(this.opts.speedBoost);
         this.showCenter(rate0 < 1.5 ? ICONS.boost : ICONS.pause);
       }, 400);
-    });
+    }, { signal });
 
     // Volume drag removed
 
     area.addEventListener('pointerup', e => {
       if (!this.isPointerDown) return;
       this.isPointerDown = false;
-      if (this.pressTimer) window.clearTimeout(this.pressTimer);
+      if (this.pressTimer) clearTimeout(this.pressTimer);
       if (this.pressedBoost) {
         this.pressedBoost = false;
         this.player.setRate(1);
@@ -111,23 +155,43 @@ export class Gestures implements PlayerPluginInstance {
       if (dbl) {
         if (x < rect.width * 0.4) this.skip('left');
         else if (x > rect.width * 0.6) this.skip('right');
-        this.lastTap = 0; this.lastTapX = 0; 
-        if (this.tapTimer) window.clearTimeout(this.tapTimer);
+        this.lastTap = 0; this.lastTapX = 0;
+        if (this.tapTimer) clearTimeout(this.tapTimer);
         this.tapTimer = null;
         return;
       }
       this.lastTap = now; this.lastTapX = x;
-      if (this.tapTimer) window.clearTimeout(this.tapTimer);
-      this.tapTimer = window.setTimeout(() => {
+      if (this.tapTimer) clearTimeout(this.tapTimer);
+      this.tapTimer = setTimeout(() => {
+        this.tapTimer = null;
         // Single tap behavior (toggle play)
-        const paused = this.player.getState().paused;
-        if (paused) this.player.play(); else this.player.pause();
+        this.togglePlay();
       }, 250);
-    });
+    }, { signal });
+
+    // A pointer that leaves the media (or is cancelled by a scroll) must not
+    // leave `isPointerDown` stuck on, which would swallow the next tap.
+    area.addEventListener('pointercancel', () => {
+      this.isPointerDown = false;
+      if (this.pressTimer) clearTimeout(this.pressTimer);
+      if (this.pressedBoost) {
+        this.pressedBoost = false;
+        this.player.setRate(1);
+      }
+    }, { signal });
+  }
+
+  private togglePlay() {
+    if (this.player.getState().paused) {
+      void this.player.play().catch(() => {});
+    } else {
+      this.player.pause();
+    }
   }
 
   private bindKeyboard() {
     document.addEventListener('keydown', (e) => {
+      if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
       const target = e.target as HTMLElement;
       const tag = target.tagName ? target.tagName.toLowerCase() : '';
 
@@ -139,16 +203,16 @@ export class Gestures implements PlayerPluginInstance {
         case ' ':
         case 'k':
           e.preventDefault();
-          if (s.paused) this.player.play(); else this.player.pause();
+          this.togglePlay();
           break;
         case 'j':
+          // `skip()` already performs the seek; seeking here as well used to
+          // jump twice the configured distance.
           e.preventDefault();
-          this.player.seek(s.currentTime - 10);
           this.skip('left');
           break;
         case 'l':
           e.preventDefault();
-          this.player.seek(s.currentTime + 10);
           this.skip('right');
           break;
         case 'arrowleft':
@@ -177,12 +241,12 @@ export class Gestures implements PlayerPluginInstance {
           break;
       }
 
-      if (e.key >= '0' && e.key <= '9') {
+      if (e.key >= '0' && e.key <= '9' && s.duration > 0) {
         e.preventDefault();
-        const pct = parseInt(e.key) * 10;
+        const pct = parseInt(e.key, 10) * 10;
         this.player.seek((pct / 100) * s.duration);
       }
-    });
+    }, { signal: this.listeners.signal });
   }
 
   private skip(side: 'left' | 'right') {
@@ -193,7 +257,12 @@ export class Gestures implements PlayerPluginInstance {
     el.innerHTML = '';
     el.appendChild(createSVG(side === 'left' ? ICONS.back : ICONS.forward, { size: 48, color: "var(--ap-on-surface)" }));
     el.style.display = 'flex';
-    window.setTimeout(() => { el.style.display = 'none'; }, 500);
+    const previous = this.skipTimers.get(side);
+    if (previous) clearTimeout(previous);
+    this.skipTimers.set(side, setTimeout(() => {
+      this.skipTimers.delete(side);
+      el.style.display = 'none';
+    }, 500));
   }
 
   private showCenter(iconPath: string) {
@@ -201,12 +270,13 @@ export class Gestures implements PlayerPluginInstance {
     this.center.appendChild(createSVG(iconPath, { size: 48, color: "var(--ap-on-surface)" }));
     this.center.style.display = 'flex';
 
-    // Reset animation/timeout
+    // Restart the animation: clearing it and forcing a reflow makes the browser
+    // treat the next assignment as a new animation.
     this.center.style.animation = 'none';
-    this.center.offsetHeight; /* trigger reflow */
-    this.center.style.animation = 'fadeIn 0.2s'; 
+    void this.center.offsetHeight;
+    this.center.style.animation = 'ap-fade-in 0.2s var(--ap-ease)';
 
-    if (this.centerTimer) window.clearTimeout(this.centerTimer);
-    this.centerTimer = window.setTimeout(() => { this.center.style.display = 'none'; }, 600);
+    if (this.centerTimer) clearTimeout(this.centerTimer);
+    this.centerTimer = setTimeout(() => { this.center.style.display = 'none'; }, 600);
   }
 }

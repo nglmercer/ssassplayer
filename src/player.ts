@@ -16,6 +16,7 @@ import type {
 } from "./types";
 import { PlayerEvent, MediaEvent } from "./types";
 import { getParentByClass } from "./utils/dom";
+import { isHlsUrl } from "./utils/media";
 export type PlayerPlugin = (player: Player) => void | { dispose(): void };
 
 export class Player implements IPlayer {
@@ -34,6 +35,9 @@ export class Player implements IPlayer {
   private pluginAPI!: PluginAPI;
   private container: HTMLElement;
   private frameExtractor: VideoFrameExtractor | null = null;
+  /** Aborts every DOM listener registered by `bind()` when the player is destroyed. */
+  private listeners = new AbortController();
+  private destroyed = false;
 
   constructor(options: PlayerOptions) {
     this.media = options.media;
@@ -55,7 +59,13 @@ export class Player implements IPlayer {
     this.setupPluginAPI();
     this.bind();
 
-    if (options.autoplay) this.play();
+    // `play()` rejects when autoplay is blocked by the browser; surface it as an
+    // `error` event instead of an unhandled promise rejection.
+    if (options.autoplay) {
+      void this.play().catch((error: unknown) => {
+        this.events.emit(PlayerEvent.ERROR, error as Error);
+      });
+    }
   }
 
   private getPlayerContainer(): HTMLElement {
@@ -115,55 +125,60 @@ export class Player implements IPlayer {
   }
 
   private bind() {
-    this.media.addEventListener(MediaEvent.LOADED_METADATA, () => {
+    const { signal } = this.listeners;
+    const on = (type: MediaEvent, handler: () => void) =>
+      this.media.addEventListener(type, handler, { signal });
+
+    const markReady = () => {
+      if (this.ready) return;
       this.ready = true;
       this.events.emit(PlayerEvent.READY, this.media);
+    };
+
+    on(MediaEvent.LOADED_METADATA, () => {
+      markReady();
+      this.events.emit(PlayerEvent.LOADED_METADATA);
     });
-    this.media.addEventListener(MediaEvent.LOADED_DATA, () => {
-      if (!this.ready && this.media.duration) {
-        this.ready = true;
-        this.events.emit(PlayerEvent.READY, this.media);
-      }
+    on(MediaEvent.LOADED_DATA, () => {
+      if (this.media.duration) markReady();
     });
-    this.media.addEventListener(MediaEvent.CAN_PLAY, () => {
-      if (!this.ready && this.media.duration) {
-        this.ready = true;
-        this.events.emit(PlayerEvent.READY, this.media);
-      }
+    on(MediaEvent.CAN_PLAY, () => {
+      if (this.media.duration) markReady();
+      this.events.emit(PlayerEvent.CAN_PLAY);
     });
-    this.media.addEventListener(MediaEvent.PLAY, () => this.events.emit(PlayerEvent.PLAY));
-    this.media.addEventListener(MediaEvent.PAUSE, () => this.events.emit(PlayerEvent.PAUSE));
-    this.media.addEventListener(MediaEvent.TIME_UPDATE, () =>
+    on(MediaEvent.PLAY, () => this.events.emit(PlayerEvent.PLAY));
+    on(MediaEvent.PAUSE, () => this.events.emit(PlayerEvent.PAUSE));
+    on(MediaEvent.TIME_UPDATE, () =>
       this.events.emit(
         PlayerEvent.TIME_UPDATE,
         this.media.currentTime,
         this.media.duration || 0,
       ),
     );
-    this.media.addEventListener(MediaEvent.VOLUME_CHANGE, () =>
+    on(MediaEvent.VOLUME_CHANGE, () =>
       this.events.emit(PlayerEvent.VOLUME_CHANGE, this.media.volume, this.media.muted),
     );
-    this.media.addEventListener(MediaEvent.SEEKING, () =>
+    on(MediaEvent.SEEKING, () =>
       this.events.emit(PlayerEvent.SEEKING, this.media.currentTime),
     );
-    this.media.addEventListener(MediaEvent.SEEKED, () =>
+    on(MediaEvent.SEEKED, () =>
       this.events.emit(PlayerEvent.SEEKED, this.media.currentTime),
     );
-    this.media.addEventListener(MediaEvent.RATE_CHANGE, () =>
+    on(MediaEvent.RATE_CHANGE, () =>
       this.events.emit(PlayerEvent.RATE_CHANGE, this.media.playbackRate),
     );
-    this.media.addEventListener(MediaEvent.ERROR, (e) => {
+    on(MediaEvent.ERROR, () => {
       const error = this.media.error
-        ? new Error(this.media.error.message)
+        ? new Error(this.media.error.message || `Media error ${this.media.error.code}`)
         : new Error("media error");
       this.events.emit(PlayerEvent.ERROR, error);
     });
-    this.media.addEventListener(MediaEvent.DURATION_CHANGE, () => {
+    on(MediaEvent.DURATION_CHANGE, () => {
       if (this.media.duration && this.media.duration > 0) {
         this.events.emit(PlayerEvent.DURATION_CHANGE, this.media.duration);
       }
     });
-    this.media.addEventListener(MediaEvent.PROGRESS, () => {
+    on(MediaEvent.PROGRESS, () => {
       if (this.media.buffered.length > 0) {
         const bufferedEnd = this.media.buffered.end(
           this.media.buffered.length - 1,
@@ -171,10 +186,52 @@ export class Player implements IPlayer {
         this.events.emit(PlayerEvent.PROGRESS, bufferedEnd, this.media.duration || 0);
       }
     });
-    this.media.addEventListener(MediaEvent.WAITING, () => this.events.emit(PlayerEvent.WAITING));
-    this.media.addEventListener(MediaEvent.STALLED, () => this.events.emit(PlayerEvent.STALLED));
-    this.media.addEventListener(MediaEvent.CAN_PLAY_THROUGH, () => this.events.emit(PlayerEvent.CAN_PLAY_THROUGH));
-    this.media.addEventListener(MediaEvent.PLAYING, () => this.events.emit(PlayerEvent.PLAYING));
+    on(MediaEvent.WAITING, () => this.events.emit(PlayerEvent.WAITING));
+    on(MediaEvent.STALLED, () => this.events.emit(PlayerEvent.STALLED));
+    on(MediaEvent.CAN_PLAY_THROUGH, () => this.events.emit(PlayerEvent.CAN_PLAY_THROUGH));
+    on(MediaEvent.PLAYING, () => this.events.emit(PlayerEvent.PLAYING));
+    on(MediaEvent.ENDED, () => this.events.emit(PlayerEvent.ENDED));
+
+    // Fullscreen state is driven by the document, not by our own calls: pressing
+    // Esc or using the browser UI must update listeners too.
+    const emitFullscreen = () =>
+      this.events.emit(PlayerEvent.FULLSCREEN_CHANGE, this.isFullscreen());
+    for (const type of [
+      "fullscreenchange",
+      "webkitfullscreenchange",
+      "mozfullscreenchange",
+      "MSFullscreenChange",
+    ]) {
+      document.addEventListener(type, emitFullscreen, { signal: this.listeners.signal });
+    }
+
+    // Same for Picture-in-Picture.
+    this.media.addEventListener(
+      "enterpictureinpicture",
+      () => this.events.emit(PlayerEvent.PIP_CHANGE, true),
+      { signal },
+    );
+    this.media.addEventListener(
+      "leavepictureinpicture",
+      () => this.events.emit(PlayerEvent.PIP_CHANGE, false),
+      { signal },
+    );
+  }
+
+  /** True when this player's container (or its media element) owns the fullscreen view. */
+  isFullscreen(): boolean {
+    const doc = document as Document & {
+      webkitFullscreenElement?: Element | null;
+      mozFullScreenElement?: Element | null;
+      msFullscreenElement?: Element | null;
+    };
+    const el =
+      doc.fullscreenElement ??
+      doc.webkitFullscreenElement ??
+      doc.mozFullScreenElement ??
+      doc.msFullscreenElement ??
+      null;
+    return !!el && (el === this.container || el.contains(this.media));
   }
 
   use(plugin: PlayerPlugin) {
@@ -283,11 +340,12 @@ export class Player implements IPlayer {
     this.media.playbackRate = rate;
   }
   setSource(url: string) {
-    const isHls = url.toLowerCase().split('?')[0].endsWith(".m3u8") || url.includes(".m3u8");
+    const isHls = isHlsUrl(url);
     const supportsNativeHls = !!this.media.canPlayType("application/vnd.apple.mpegurl");
 
     if (isHls && !supportsNativeHls && this.hasPlugin("hls-plugin")) {
-      console.log("Player: HLS detected, deferring to hls-plugin");
+      // hls-plugin attaches a MediaSource itself; setting `src` here would make
+      // Firefox reject the manifest as "not suitable".
     } else {
       this.media.src = url;
       this.media.load();
@@ -310,8 +368,8 @@ export class Player implements IPlayer {
       playbackRate: this.media.playbackRate,
       paused: this.media.paused,
       ready: this.ready,
-      fullscreen: !!document.fullscreenElement,
-      pip: !!(document as Document & { pictureInPictureElement: Element | null }).pictureInPictureElement,
+      fullscreen: this.isFullscreen(),
+      pip: document.pictureInPictureElement === this.media,
       quality: qualityProvider?.getCurrentQuality() || undefined,
       textTrack: textTrackProvider?.getActiveTrack() || undefined,
       audioTrack: audioTrackProvider?.getActiveTrack() || undefined,
@@ -330,10 +388,16 @@ export class Player implements IPlayer {
   }
 
   requestFullscreen() {
-    const container = this.getPlayerContainer() as HTMLElement & { webkitRequestFullscreen: () => void; mozRequestFullScreen: () => void; msRequestFullscreen: () => void; };
-    const el = container;
+    // Always the container the player was constructed with, so overlays
+    // (controls, menu, subtitles) go fullscreen together with the video.
+    const el = this.container as HTMLElement & {
+      webkitRequestFullscreen?: () => void;
+      mozRequestFullScreen?: () => void;
+      msRequestFullscreen?: () => void;
+    };
+    // `fullscreenchange` emits the event; nothing is assumed here.
     if (el.requestFullscreen) {
-      el.requestFullscreen();
+      void Promise.resolve(el.requestFullscreen()).catch(() => {});
     } else if (el.webkitRequestFullscreen) {
       el.webkitRequestFullscreen();
     } else if (el.mozRequestFullScreen) {
@@ -341,13 +405,16 @@ export class Player implements IPlayer {
     } else if (el.msRequestFullscreen) {
       el.msRequestFullscreen();
     }
-    this.events.emit(PlayerEvent.FULLSCREEN_CHANGE, true);
   }
 
   exitFullscreen() {
-    const doc = document as Document & { webkitExitFullscreen: () => void; mozCancelFullScreen: () => void; msExitFullscreen: () => void; };
+    const doc = document as Document & {
+      webkitExitFullscreen?: () => void;
+      mozCancelFullScreen?: () => void;
+      msExitFullscreen?: () => void;
+    };
     if (doc.exitFullscreen) {
-      doc.exitFullscreen();
+      void Promise.resolve(doc.exitFullscreen()).catch(() => {});
     } else if (doc.webkitExitFullscreen) {
       doc.webkitExitFullscreen();
     } else if (doc.mozCancelFullScreen) {
@@ -355,10 +422,15 @@ export class Player implements IPlayer {
     } else if (doc.msExitFullscreen) {
       doc.msExitFullscreen();
     }
-    this.events.emit(PlayerEvent.FULLSCREEN_CHANGE, false);
   }
 
   destroy() {
+    if (this.destroyed) return;
+    this.destroyed = true;
+
+    // Detach every media/document listener registered by `bind()`.
+    this.listeners.abort();
+
     for (const p of this.plugins) p.dispose?.();
     this.plugins = [];
     this.pluginInstances.clear();
@@ -368,6 +440,7 @@ export class Player implements IPlayer {
       this.frameExtractor = null;
     }
 
-    this.events.removeAll();
+    this.events.destroy();
+    this.container.classList.remove("ap-player");
   }
 }

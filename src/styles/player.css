@@ -1,29 +1,20 @@
-.player-wrapper, .player {
+.ap-player, .player-wrapper, .player {
     position: relative;
-    background: #000;
+    background: var(--ap-bg, #000);
     width: 100%;
-    height: 0;
-    padding-bottom: 56.25%; /* 16:9 */
+    /* `height: 0` + `padding-bottom` fought any explicit height or
+       `aspect-ratio` set by the host page; `aspect-ratio` composes cleanly and
+       is overridable. */
+    aspect-ratio: 16 / 9;
     overflow: hidden;
     border-radius: var(--ap-radius-lg);
-    box-shadow: 0 30px 100px rgba(0,0,0,0.9);
+    /* Defaults to `none`: a player should not impose a large drop shadow on the
+       host's layout. Set `--ap-player-shadow` to opt into one. */
+    box-shadow: var(--ap-player-shadow, none);
     color: var(--ap-on-surface);
     user-select: none;
-    cursor: auto;
-    transition: box-shadow 0.4s var(--ap-transition);
-
-    &.loading::after {
-        content: "";
-        position: absolute;
-        inset: 0;
-        background: rgba(0,0,0,0.6);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 10;
-        backdrop-filter: blur(10px);
-        animation: ap-loading-fade 0.5s var(--ap-transition);
-    }
+    -webkit-user-select: none;
+    isolation: isolate;
 
     video {
         position: absolute;
@@ -31,11 +22,12 @@
         width: 100%;
         height: 100%;
         object-fit: contain;
+        display: block;
     }
 }
 
-@keyframes ap-loading-fade {
-    from { opacity: 0; }
-    to { opacity: 1; }
+/* While the controls are auto-hidden the pointer is hidden with them, so a
+   still frame is never covered by a floating cursor. */
+.ap-player.ap-controls-hidden {
+    cursor: none;
 }
-

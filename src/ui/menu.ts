@@ -2,7 +2,7 @@ import { ICONS, createSVG } from "./icons";
 
 export type MenuIcon = string | HTMLElement;
 
-export type MenuItem =
+export type MenuEntry =
   | {
     type: "toggle";
     id: string;
@@ -28,9 +28,12 @@ export type MenuItem =
     onClick: () => void;
   };
 
+/** @deprecated Use {@link MenuEntry}. Kept so existing imports keep compiling. */
+export type MenuItem = MenuEntry;
+
 export interface MenuGroup {
   label: string;
-  items: MenuItem[];
+  items: MenuEntry[];
 }
 
 export interface MenuOptions {
@@ -44,7 +47,10 @@ export class Dropdown {
 
   constructor(className: string = "") {
     this.element = document.createElement("div");
-    this.element.className = `ap-dropdown ${className}`;
+    this.element.className = `ap-dropdown ${className}`.trim();
+    // Start hidden: without this the element is visible from the moment it is
+    // appended, until the first toggle().
+    this.element.style.display = "none";
   }
 
   open() {
@@ -82,9 +88,11 @@ export class Menu {
   private panel: HTMLElement;
   private subpanel: HTMLElement;
   private groups: MenuGroup[] = [];
-  private options: MenuOptions;
-  private currentDropdown?: Dropdown;
-  private activeSelectItem?: Extract<MenuItem, { type: "select" }>;
+  private activeSelectItem?: Extract<MenuEntry, { type: "select" }>;
+  private subpanelOpen = false;
+  private isOpen = false;
+  private listeners = new AbortController();
+  private timers = new Set<ReturnType<typeof setTimeout>>();
 
   constructor(
     root: HTMLElement,
@@ -92,7 +100,6 @@ export class Menu {
     options: MenuOptions = {},
   ) {
     this.root = root;
-    this.options = options;
     this.overlay = document.createElement("div");
     this.panel = document.createElement("div");
     this.subpanel = document.createElement("div");
@@ -101,17 +108,33 @@ export class Menu {
     this.subpanel.className = "ap-subpanel";
     if (options.className) this.panel.className += " " + options.className;
 
-    // Enhanced overlay click handling
-    this.overlay.addEventListener("click", (e) => {
-      if (e.target === this.overlay) this.close();
-    });
+    this.overlay.setAttribute("role", "dialog");
+    this.overlay.setAttribute("aria-modal", "true");
+    this.panel.setAttribute("role", "menu");
+    this.subpanel.setAttribute("role", "menu");
 
-    // Close dropdowns when clicking outside
-    document.addEventListener("click", (e) => {
-      if (!this.overlay.contains(e.target as Node)) {
-        this.closeCurrentDropdown();
-      }
-    });
+    const { signal } = this.listeners;
+
+    // Enhanced overlay click handling
+    this.overlay.addEventListener(
+      "click",
+      (e) => {
+        if (e.target === this.overlay) this.close();
+      },
+      { signal },
+    );
+
+    // Back out of the sub-panel (then the whole menu) on Escape.
+    document.addEventListener(
+      "keydown",
+      (e) => {
+        if (e.key !== "Escape" || !this.isOpen) return;
+        e.preventDefault();
+        if (this.subpanelOpen) this.closeSubpanel();
+        else this.close();
+      },
+      { signal },
+    );
 
     this.overlay.appendChild(this.panel);
     this.overlay.appendChild(this.subpanel);
@@ -126,58 +149,59 @@ export class Menu {
   }
 
   open() {
-    this.overlay.style.display = "block";
+    this.isOpen = true;
     this.overlay.classList.add("ap-overlay-open");
   }
 
   close() {
-    this.overlay.style.display = "none";
+    this.isOpen = false;
     this.overlay.classList.remove("ap-overlay-open");
+    this.closeSubpanel();
     this.subpanel.innerHTML = "";
-    this.subpanel.style.display = "none";
-    this.closeCurrentDropdown();
+    this.activeSelectItem = undefined;
   }
 
   toggle() {
-    if (
-      this.overlay.style.display === "none" ||
-      this.overlay.style.display === ""
-    )
-      this.open();
-    else this.close();
+    if (this.isOpen) this.close();
+    else this.open();
   }
 
-  private closeCurrentDropdown() {
-    if (this.currentDropdown) {
-      this.currentDropdown.close();
-      this.currentDropdown = undefined;
-    }
-    // Also close subpanel if it's open
-    this.closeSubpanel();
-  }
-
-  private openDropdown(dropdown: Dropdown) {
-    this.closeCurrentDropdown();
-    this.currentDropdown = dropdown;
-    dropdown.open();
-    dropdown.setOnClose(() => {
-      this.currentDropdown = undefined;
-    });
+  isMenuOpen() {
+    return this.isOpen;
   }
 
   private openSubpanel() {
+    this.subpanelOpen = true;
     this.panel.classList.add("ap-panel-hidden");
     this.subpanel.classList.add("ap-subpanel-visible");
   }
 
   private closeSubpanel() {
+    this.subpanelOpen = false;
     this.panel.classList.remove("ap-panel-hidden");
     this.subpanel.classList.remove("ap-subpanel-visible");
-    setTimeout(() => {
-      if (!this.subpanel.classList.contains("ap-subpanel-visible")) {
-        this.subpanel.innerHTML = "";
-      }
+    // Empty the sub-panel only once the slide-out transition has finished.
+    this.defer(() => {
+      if (!this.subpanelOpen) this.subpanel.innerHTML = "";
     }, 400);
+  }
+
+  /** setTimeout that is cancelled by `destroy()`. */
+  private defer(fn: () => void, ms: number) {
+    const id = setTimeout(() => {
+      this.timers.delete(id);
+      fn();
+    }, ms);
+    this.timers.add(id);
+    return id;
+  }
+
+  /** Detaches listeners, cancels timers and removes the menu from the DOM. */
+  destroy() {
+    this.listeners.abort();
+    for (const id of this.timers) clearTimeout(id);
+    this.timers.clear();
+    this.overlay.remove();
   }
 
   private renderMain() {
@@ -191,7 +215,7 @@ export class Menu {
     }
   }
 
-  private renderItem(item: MenuItem) {
+  private renderItem(item: MenuEntry) {
     const row = document.createElement("button");
     row.type = "button";
     row.className = "ap-row";
@@ -207,7 +231,11 @@ export class Menu {
     row.appendChild(left);
     row.appendChild(right);
 
+    row.setAttribute("role", "menuitem");
+
     if (item.type === "toggle") {
+      row.setAttribute("role", "menuitemcheckbox");
+      row.setAttribute("aria-checked", String(item.value));
       const toggle = document.createElement("span");
       toggle.className = "ap-toggle" + (item.value ? " ap-toggle-on" : "");
       right.appendChild(toggle);
@@ -215,6 +243,7 @@ export class Menu {
         e.stopPropagation();
         item.value = !item.value;
         toggle.className = "ap-toggle" + (item.value ? " ap-toggle-on" : "");
+        row.setAttribute("aria-checked", String(item.value));
         item.onChange(item.value);
       };
     } else if (item.type === "select") {
@@ -227,6 +256,7 @@ export class Menu {
       arrow.appendChild(createSVG(ICONS.menuArrow, { size: 16, color: "var(--ap-on-surface-variant)" }));
       right.appendChild(val);
       right.appendChild(arrow);
+      row.setAttribute("aria-haspopup", "true");
       row.onclick = (e) => {
         e.stopPropagation();
         this.openSelect(item);
@@ -240,12 +270,11 @@ export class Menu {
     return row;
   }
 
-  private openSelect(item: Extract<MenuItem, { type: "select" }>) {
-    // Check if clicking the same select item to toggle
-    if (
-      this.activeSelectItem === item &&
-      this.subpanel.style.display === "block"
-    ) {
+  private openSelect(item: Extract<MenuEntry, { type: "select" }>) {
+    // Clicking the select row that is already open closes the sub-panel again.
+    // (This used to read `subpanel.style.display`, which CSS pins to `block`
+    // with `!important`, so the branch could never be taken.)
+    if (this.activeSelectItem === item && this.subpanelOpen) {
       this.closeSubpanel();
       this.activeSelectItem = undefined;
       return;
@@ -287,9 +316,11 @@ export class Menu {
       label.className = "ap-label";
       label.textContent = opt.label;
       const check = document.createElement("span");
-      check.className =
-        "ap-check" + (opt.value === item.value ? " ap-check-on" : "");
+      const selected = opt.value === item.value;
+      check.className = "ap-check" + (selected ? " ap-check-on" : "");
       check.appendChild(createSVG(ICONS.check, { size: 14, color: "var(--ap-primary)" }));
+      row.setAttribute("role", "menuitemradio");
+      row.setAttribute("aria-checked", String(selected));
       left.appendChild(label);
       right.appendChild(check);
       row.appendChild(left);
@@ -302,12 +333,16 @@ export class Menu {
 
         // Update selection UI immediately in subpanel
         this.subpanel.querySelectorAll(".ap-check").forEach(c => c.classList.remove("ap-check-on"));
-        this.subpanel.querySelectorAll(".ap-row").forEach(r => r.classList.remove("ap-row-selected"));
+        this.subpanel.querySelectorAll(".ap-row").forEach(r => {
+          r.classList.remove("ap-row-selected");
+          r.setAttribute("aria-checked", "false");
+        });
         check.classList.add("ap-check-on");
         row.classList.add("ap-row-selected");
+        row.setAttribute("aria-checked", "true");
 
         // Delayed close for better UX
-        setTimeout(() => {
+        this.defer(() => {
           this.closeSubpanel();
           this.activeSelectItem = undefined;
         }, 300);
@@ -318,16 +353,9 @@ export class Menu {
 
     this.open();
 
-    // Trigger animation after a brief delay
-    setTimeout(() => {
-      this.openSubpanel();
-    }, 10);
-  }
-
-  private closeAllSubmenus() {
-    this.closeSubpanel();
-    this.closeCurrentDropdown();
-    this.activeSelectItem = undefined;
+    // One frame later, so the browser has a chance to paint the initial
+    // (translated / transparent) state and actually run the transition.
+    requestAnimationFrame(() => this.openSubpanel());
   }
 
   private iconEl(icon?: MenuIcon) {

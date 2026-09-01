@@ -1,9 +1,8 @@
-import {
+import type {
     IPlayer,
     PluginAPI,
     PlayerPluginInstance,
     PluginManifest,
-    TextTrackPlugin,
     TextTrack
 } from "../../types";
 
@@ -17,6 +16,8 @@ export interface ASSInstance {
     show(): void;
     hide(): void;
     destroy(): void;
+    resize?(): void;
+    resample?(): void;
     delay: number;
     resampling: string;
     [key: string]: any;
@@ -52,6 +53,8 @@ class AssJsPlugin implements PlayerPluginInstance {
     private cleanupListeners: (() => void)[] = [];
     private container: HTMLElement | null = null;
     private resizeObserver: ResizeObserver | null = null;
+    private AssClass: ASSConstructor | null = null;
+    private loadToken = 0;
 
     constructor(
         private player: IPlayer,
@@ -59,7 +62,26 @@ class AssJsPlugin implements PlayerPluginInstance {
         private options: AssJsPluginOptions,
     ) { }
 
-    install() {
+    /**
+     * Resolves the ASS.js constructor from, in order: the `ass` option, a
+     * `window.ASS` global, and finally the optional `assjs` package.
+     */
+    private async resolveAssClass(): Promise<ASSConstructor | null> {
+        if (this.options.ass) return this.options.ass;
+        if (typeof window !== 'undefined' && (window as any).ASS) {
+            return (window as any).ASS as ASSConstructor;
+        }
+        try {
+            const mod: any = await import("assjs");
+            return (mod.default || mod.ASS || mod) as ASSConstructor;
+        } catch {
+            return null;
+        }
+    }
+
+    async install() {
+        this.AssClass = await this.resolveAssClass();
+
         // Prepare container if not provided
         // We need a stable container for ASS.js to render into.
         // It should overlay the video.
@@ -106,6 +128,8 @@ class AssJsPlugin implements PlayerPluginInstance {
 
     private async setActiveTrack(trackId: string | null) {
         this.activeTrackId = trackId;
+        // A newer switch must win over a still-pending fetch.
+        const token = ++this.loadToken;
         const track = this.tracks.find(t => t.id === trackId);
 
         if (this.trackChangeCallback) {
@@ -129,6 +153,9 @@ class AssJsPlugin implements PlayerPluginInstance {
         } else if (track.src) {
             try {
                 const response = await fetch(track.src);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status} loading ${track.src}`);
+                }
                 content = await response.text();
             } catch (e) {
                 console.error("AssJsPlugin: Failed to load ASS track", e);
@@ -136,7 +163,7 @@ class AssJsPlugin implements PlayerPluginInstance {
             }
         }
 
-        if (!content) return;
+        if (!content || token !== this.loadToken) return;
 
         this.initAss(content);
     }
@@ -151,10 +178,10 @@ class AssJsPlugin implements PlayerPluginInstance {
             // Create a container if one wasn't provided or created yet
             // This container needs to overlay the video. 
             // We assume the video is in a wrapper or we can append to video's parent.
-            const parent = video.parentElement;
+            const parent = this.player.getContainer?.() ?? video.parentElement;
             if (parent) {
                 this.container = document.createElement('div');
-                this.container.className = 'assjs-container';
+                this.container.className = 'ap-assjs-container';
                 // Basic overlay styles to ensure it matches video
                 this.container.style.position = 'absolute';
                 this.container.style.top = '0';
@@ -162,9 +189,11 @@ class AssJsPlugin implements PlayerPluginInstance {
                 this.container.style.width = '100%';
                 this.container.style.height = '100%';
                 this.container.style.pointerEvents = 'none'; // Click-through
-                this.container.style.zIndex = '2147483647'; // Max z-index
+                // Above the video, below the controls (z-index 45) and the
+                // settings overlay (50) so those stay clickable. The previous
+                // 2147483647 covered the whole player UI.
+                this.container.style.zIndex = '20';
 
-                // Usually we want to insert it after the video or append to parent
                 parent.appendChild(this.container);
             }
         }
@@ -177,29 +206,28 @@ class AssJsPlugin implements PlayerPluginInstance {
         try {
             console.log("AssJsPlugin: Initializing ASS.js");
 
-            // Resolve ASS constructor
-            let AssClass = this.options.ass;
-            if (!AssClass && typeof window !== 'undefined' && (window as any).ASS) {
-                AssClass = (window as any).ASS;
-            }
-
+            const AssClass = this.AssClass;
             if (!AssClass) {
-                console.error("AssJsPlugin: ASS.js library not found. Please load it via <script> tag or pass it in options.");
+                console.error("AssJsPlugin: ASS.js library not found. Install `assjs`, load it via a <script> tag, or pass it in options.");
                 return;
             }
 
+            // `container` and `ass` are plugin-level options, not ASS.js options:
+            // spreading them through would let an undefined `container` override
+            // the one resolved above and hand the library its own constructor.
+            const { container: _container, ass: _ass, resampling, ...assOptions } = this.options;
+
             this.assInstance = new AssClass(content, video, {
+                ...assOptions,
                 container: this.container,
-                resampling: this.options.resampling || 'video_height',
-                ...this.options
+                resampling: resampling || 'video_height',
             });
 
             // Handle resize for ASS.js
             if (!this.resizeObserver) {
                 this.resizeObserver = new ResizeObserver(() => {
-                    if (this.assInstance && typeof this.assInstance.resample === 'function') {
-                        this.assInstance.resample();
-                    }
+                    this.assInstance?.resize?.();
+                    this.assInstance?.resample?.();
                 });
                 this.resizeObserver.observe(video);
             }
@@ -218,6 +246,7 @@ class AssJsPlugin implements PlayerPluginInstance {
     }
 
     dispose() {
+        this.loadToken++;
         if (this.assInstance) {
             this.assInstance.destroy();
             this.assInstance = null;
@@ -232,6 +261,10 @@ class AssJsPlugin implements PlayerPluginInstance {
             this.resizeObserver = null;
         }
         this.cleanupListeners.forEach(fn => fn());
+        this.cleanupListeners = [];
         this.tracks = [];
+        this.container = null;
+        this.activeTrackId = null;
+        this.trackChangeCallback = null;
     }
 }

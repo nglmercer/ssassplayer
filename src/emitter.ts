@@ -3,7 +3,11 @@ import type { EventMap } from "./types";
 export interface EmitterOptions {
   debug?: boolean;
   maxListeners?: number;
-  onError?: (error: Error, eventType: string, handler: Function) => void;
+  onError?: (
+    error: Error,
+    eventType: string,
+    handler: (...args: any[]) => void,
+  ) => void;
 }
 
 export class Emitter<T extends EventMap> {
@@ -30,7 +34,7 @@ export class Emitter<T extends EventMap> {
     const currentCount = set.size;
     if (
       this.options.maxListeners &&
-      currentCount >= this.options.maxListeners
+      currentCount === this.options.maxListeners
     ) {
       console.warn(
         `Emitter: Maximum listeners (${this.options.maxListeners}) exceeded for event "${String(type)}"`,
@@ -161,20 +165,20 @@ export class Emitter<T extends EventMap> {
 
     this.emit(type, ...args);
 
-    const timer = window.setTimeout(() => {
+    const timer = setTimeout(() => {
       this.throttleTimers?.delete(key);
     }, delay);
 
     this.throttleTimers.set(key, timer);
   }
 
-  private throttleTimers?: Map<string, number>;
+  private throttleTimers?: Map<string, ReturnType<typeof setTimeout>>;
 
   destroy() {
     // Clean up throttle timers
     if (this.throttleTimers) {
       for (const timer of this.throttleTimers.values()) {
-        window.clearTimeout(timer);
+        clearTimeout(timer);
       }
       this.throttleTimers.clear();
     }

@@ -1,6 +1,11 @@
 export type EventMap = Record<string, any[]>;
 
-export interface PlayerEvents extends EventMap {
+/**
+ * Declared as a type alias (not an interface) on purpose: a type alias gets an
+ * implicit index signature, so it still satisfies `Emitter<T extends EventMap>`
+ * while `keyof PlayerEvents` stays exact and typos are caught at compile time.
+ */
+export type PlayerEvents = {
   ready: [HTMLMediaElement];
   play: [];
   pause: [];
@@ -25,7 +30,10 @@ export interface PlayerEvents extends EventMap {
   playing: [];
   menuitemadded: [MenuItem];
   menuitemremoved: [string];
-}
+  canplay: [];
+  loadedmetadata: [];
+  ended: [];
+};
 
 export enum PlayerEvent {
   READY = "ready",
@@ -49,6 +57,9 @@ export enum PlayerEvent {
   WAITING = "waiting",
   STALLED = "stalled",
   CAN_PLAY_THROUGH = "canplaythrough",
+  CAN_PLAY = "canplay",
+  LOADED_METADATA = "loadedmetadata",
+  ENDED = "ended",
   PLAYING = "playing",
   MENU_ITEM_ADDED = "menuitemadded",
   MENU_ITEM_REMOVED = "menuitemremoved",
@@ -71,6 +82,7 @@ export enum MediaEvent {
   WAITING = "waiting",
   STALLED = "stalled",
   CAN_PLAY_THROUGH = "canplaythrough",
+  ENDED = "ended",
   PLAYING = "playing",
 }
 
@@ -99,6 +111,9 @@ export const PlayerEventsList = [
   "playing",
   "menuitemadded",
   "menuitemremoved",
+  "canplay",
+  "loadedmetadata",
+  "ended",
 ] as const;
 
 // Plugin System Types
@@ -199,8 +214,6 @@ export interface PlayerOptions {
   volume?: number;
   muted?: boolean;
   playbackRate?: number;
-  enableThumbnails?: boolean;
-  enableKeyboardShortcuts?: boolean;
   container?: HTMLElement;
   crossOrigin?: string;
 }
@@ -235,17 +248,28 @@ export interface PlayerState {
   error?: Error;
 }
 
-// Forward declaration to avoid circular dependency
+/**
+ * Structural view of `Player` used by plugins, declared here to avoid a
+ * circular import between `player.ts` and the plugin modules. The event
+ * signatures mirror `Player` exactly so unknown event names are rejected.
+ */
 export interface IPlayer {
   media: HTMLMediaElement;
-  events: Record<string, any>; // Avoid circular dependency
+  events: { emit<K extends keyof PlayerEvents>(type: K, ...args: PlayerEvents[K]): void };
   currentSource?: string;
   src?: string;
-  on<K extends string>(type: K, handler: (...args: any[]) => void): () => void;
-  once<K extends string>(
+  on<K extends keyof PlayerEvents>(
     type: K,
-    handler: (...args: any[]) => void,
+    handler: (...args: PlayerEvents[K]) => void,
   ): () => void;
+  once<K extends keyof PlayerEvents>(
+    type: K,
+    handler: (...args: PlayerEvents[K]) => void,
+  ): () => void;
+  off<K extends keyof PlayerEvents>(
+    type: K,
+    handler: (...args: PlayerEvents[K]) => void,
+  ): void;
   getContainer?(): HTMLElement;
   getAPI?(): PluginAPI;
 }

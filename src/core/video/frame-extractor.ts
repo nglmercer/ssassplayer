@@ -139,18 +139,22 @@ export class VideoFrameExtractor {
 
     this.isProcessing = true;
 
-    while (this.seekQueue.length > 0) {
-      const task = this.seekQueue.shift()!;
+    try {
+      while (this.seekQueue.length > 0) {
+        const task = this.seekQueue.shift()!;
 
-      try {
-        const frame = await this.performExtraction(task.timestamp);
-        task.resolve(frame);
-      } catch (error) {
-        task.reject(error as Error);
+        try {
+          const frame = await this.performExtraction(task.timestamp);
+          task.resolve(frame);
+        } catch (error) {
+          task.reject(error as Error);
+        }
       }
+    } finally {
+      // Without the `finally` an unexpected throw would leave the queue
+      // permanently wedged in the "processing" state.
+      this.isProcessing = false;
     }
-
-    this.isProcessing = false;
   }
 
   /**
@@ -250,25 +254,28 @@ export class VideoFrameExtractor {
         return;
       }
 
+      // One controller removes both listeners on every exit path; the previous
+      // version always left one of the two attached.
+      const listeners = new AbortController();
       const timeout = setTimeout(() => {
-        video.removeEventListener("loadedmetadata", onLoaded);
+        listeners.abort();
         reject(new Error("Metadata load timeout"));
       }, 5000);
 
       const onLoaded = () => {
         clearTimeout(timeout);
-        video.removeEventListener("error", onError);
+        listeners.abort();
         resolve();
       };
 
       const onError = () => {
         clearTimeout(timeout);
-        video.removeEventListener("loadedmetadata", onLoaded);
+        listeners.abort();
         reject(new Error("Failed to load video metadata"));
       };
 
-      video.addEventListener("loadedmetadata", onLoaded);
-      video.addEventListener("error", onError);
+      video.addEventListener("loadedmetadata", onLoaded, { signal: listeners.signal });
+      video.addEventListener("error", onError, { signal: listeners.signal });
     });
   }
 
@@ -285,7 +292,7 @@ export class VideoFrameExtractor {
   updateOptions(options: Partial<FrameExtractorOptions>): void {
     Object.assign(this.options, options);
 
-    if (options.width || options.height) {
+    if (options.width !== undefined || options.height !== undefined) {
       this.canvas.width = this.options.width;
       this.canvas.height = this.options.height;
     }
@@ -316,7 +323,12 @@ export class VideoFrameExtractor {
    * Dispose of resources
    */
   dispose(): void {
-    this.seekQueue.length = 0;
+    // Reject anything still queued; silently dropping the tasks left their
+    // callers awaiting a promise that could never settle.
+    const pending = this.seekQueue.splice(0, this.seekQueue.length);
+    for (const task of pending) {
+      task.reject(new Error("VideoFrameExtractor was disposed"));
+    }
     this.isProcessing = false;
 
     if (this.clonedVideo.parentNode) {

@@ -22,14 +22,18 @@ export interface CreateSVGOptions {
     className?: string;
 }
 
-export function createSVG(path: string | HTMLElement, options: number | CreateSVGOptions = 24): HTMLElement | SVGSVGElement {
-    if (path instanceof HTMLElement) return path;
+export function createSVG(path: string | HTMLElement | SVGElement, options: number | CreateSVGOptions = 24): HTMLElement | SVGElement {
+    // An already-built node is returned untouched; `Element` also covers SVG
+    // nodes, which `instanceof HTMLElement` missed.
+    if (path instanceof Element) return path;
 
     const opts: CreateSVGOptions = typeof options === 'number' ? { size: options } : options;
-    const { size = 24, color = "var(--ye-icon-color, currentColor)", className } = opts;
+    const { size = 24, color = "var(--ap-icon-color, var(--ye-icon-color, currentColor))", className } = opts;
 
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("focusable", "false");
     svg.setAttribute("width", size.toString());
     svg.setAttribute("height", size.toString());
     
@@ -42,7 +46,7 @@ export function createSVG(path: string | HTMLElement, options: number | CreateSV
     svg.style.pointerEvents = "none"; // Ensure icons don't capture clicks
     
     // Use insertAdjacentHTML for better SVG inner content parsing
-    svg.insertAdjacentHTML('afterbegin', typeof path === 'string' ? path : (path as HTMLElement).outerHTML);
-    
+    svg.insertAdjacentHTML('afterbegin', path);
+
     return svg;
 }

@@ -1,27 +1,171 @@
-.controls {
-    position: absolute;
-    bottom: 12px;
-    left: 12px;
-    right: 12px;
-    z-index: 45;
-    padding: 0;
-    background: var(--ap-surface);
-    backdrop-filter: var(--ap-blur);
-    border: 1px solid var(--ap-outline);
-    border-radius: var(--ap-radius-lg);
-    opacity: 0;
-    transition: opacity 0.5s var(--ap-transition), transform 0.5s var(--ap-transition);
-    transform: translateY(20px) scale(0.98);
-    pointer-events: none;
-    box-shadow: var(--ap-shadow);
+/*
+ * Control bar.
+ *
+ * Layout: a gradient scrim pinned to the bottom edge, a full-bleed progress
+ * rail, then a flush row of buttons. Nothing is inset or card-shaped, so the
+ * bar covers as little of the frame as possible and reads as part of the video
+ * rather than a panel floating over it.
+ *
+ * Everything is scoped under `.ap-player` (the class the Player adds to its
+ * container). The class names themselves are deliberately generic —
+ * `.controls`, `.scrubber`, `.time-display` — and would otherwise collide with
+ * the host application's own styles.
+ */
+.ap-player {
 
-    .player-wrapper:hover &,
-    .player:hover &,
-    &.visible {
+    .controls {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 45;
+        display: flex;
+        flex-direction: column;
+        color: var(--ap-on-scrim);
+        /* The runway above the rail is what the gradient fades across. */
+        padding-top: var(--ap-scrim-height);
+        background: var(--ap-scrim);
         opacity: 1;
-        transform: translateY(0) scale(1);
-        pointer-events: auto;
+        transform: translateY(0);
+        transition: opacity 0.24s var(--ap-ease), transform 0.24s var(--ap-ease);
     }
+
+    /* Visibility is owned by Controls, which adds `.ap-controls-hidden` to the
+       container after an idle period during playback. It used to be driven by
+       `.player:hover` in CSS alone, which meant the bar never appeared for a
+       container that was not named `.player`. `.visible` still pins it on. */
+    &.ap-controls-hidden .controls:not(.visible):not(:focus-within) {
+        opacity: 0;
+        transform: translateY(12px);
+        pointer-events: none;
+    }
+
+    /* ---- Progress rail ------------------------------------------------ */
+
+    .controls-progress {
+        display: flex;
+        align-items: center;
+        /* Full bleed: the rail spans the whole width, which makes scrubbing
+           positions map 1:1 to the frame. */
+        padding: 0;
+    }
+
+    .progress-container {
+        position: relative;
+        flex: 1;
+        height: var(--ap-progress-height);
+        background: var(--ap-track);
+        cursor: pointer;
+        /* Keeps a drag from turning into a page scroll on touch devices. */
+        touch-action: none;
+        transition: height 0.16s var(--ap-ease);
+
+        /* A 4px rail is a poor pointer target; this extends the hit area
+           above and below without changing the painted height. */
+        &::before {
+            content: "";
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: -11px;
+            bottom: -7px;
+        }
+
+        &:hover,
+        &:focus-visible,
+        &.is-scrubbing {
+            height: var(--ap-progress-hover);
+        }
+
+        &:focus-visible {
+            outline: 2px solid var(--ap-accent);
+            outline-offset: 2px;
+        }
+    }
+
+    .progress-bar {
+        position: relative;
+        height: 100%;
+        width: 100%;
+    }
+
+    .progress-loaded,
+    .progress-hover,
+    .progress-played {
+        position: absolute;
+        left: 0;
+        top: 0;
+        height: 100%;
+        width: 0;
+    }
+
+    .progress-loaded {
+        background: var(--ap-track-buffered);
+    }
+
+    /* Ghost fill showing where a click would seek to. */
+    .progress-hover {
+        background: var(--ap-track-hover);
+        opacity: 0;
+        transition: opacity 0.16s var(--ap-ease);
+    }
+
+    .progress-container:hover .progress-hover {
+        opacity: 1;
+    }
+
+    .progress-played {
+        background: var(--ap-accent);
+    }
+
+    .scrubber {
+        position: absolute;
+        top: 50%;
+        right: 0;
+        width: 13px;
+        height: 13px;
+        margin-right: -6.5px;
+        background: var(--ap-scrubber);
+        border-radius: 50%;
+        transform: translateY(-50%) scale(0);
+        transition: transform 0.16s var(--ap-ease);
+        /* Sits outside `.progress-bar`'s overflow clip. */
+        z-index: 2;
+    }
+
+    .progress-container:hover .scrubber,
+    .progress-container:focus-visible .scrubber,
+    .progress-container.is-scrubbing .scrubber {
+        transform: translateY(-50%) scale(1);
+    }
+
+    /* Time readout that follows the pointer along the rail. */
+    .progress-tooltip {
+        position: absolute;
+        bottom: calc(100% + 12px);
+        left: 0;
+        padding: 4px 8px;
+        border-radius: var(--ap-radius-sm);
+        background: var(--ap-surface);
+        backdrop-filter: var(--ap-blur);
+        border: 1px solid var(--ap-outline);
+        box-shadow: var(--ap-shadow);
+        color: var(--ap-on-surface);
+        font-size: 12px;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.14s var(--ap-ease);
+    }
+
+    .progress-container:hover .progress-tooltip,
+    .progress-container.is-scrubbing .progress-tooltip {
+        opacity: 1;
+    }
+
+    /* ---- Button row ---------------------------------------------------- */
 
     .controls-main {
         display: flex;
@@ -29,13 +173,13 @@
         justify-content: space-between;
         height: var(--ap-controls-height);
         padding: 0 var(--ap-padding);
-        gap: 16px;
+        gap: 8px;
 
         .controls-left,
         .controls-right {
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 2px;
             min-width: 0;
         }
 
@@ -47,239 +191,248 @@
             min-width: 0;
         }
     }
-}
 
-/* Progress bar - Enhanced */
-.controls-progress {
-    padding: 6px var(--ap-padding) 4px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-
-    .progress-container {
-        flex: 1;
-        height: var(--ap-progress-height);
-        background: rgba(255, 255, 255, 0.08);
-        border-radius: 100px;
-        cursor: pointer;
-        transition: height 0.3s var(--ap-transition);
-        overflow: visible;
-        position: relative;
-
-        &:hover {
-            height: var(--ap-progress-hover);
-        }
-    }
-
-    .progress-bar {
-        position: relative;
-        height: 100%;
-        width: 100%;
-    }
-
-    .progress-played {
-        background: var(--ap-primary-gradient);
-        height: 100%;
-        border-radius: 100px;
-        position: relative;
-
-        &::after {
-            content: "";
-            position: absolute;
-            right: 0;
-            top: 0;
-            bottom: 0;
-            width: 3px;
-            background: #fff;
-            filter: blur(3px);
-            opacity: 0.8;
-        }
-    }
-
-    .progress-loaded {
-        background: var(--ap-progress-loaded);
-        height: 100%;
-        border-radius: 100px;
-        position: absolute;
-        top: 0;
-        left: 0;
-    }
-
-    .scrubber {
-        position: absolute;
-        top: 50%;
-        right: -6px;
-        width: 12px;
-        height: 12px;
-        background: #fff;
-        border-radius: 50%;
-        transform: translateY(-50%) scale(0);
-        transition: transform 0.3s var(--ap-transition);
-        box-shadow: 0 0 10px rgba(255, 255, 255, 0.8);
-        z-index: 2;
-    }
-
-    .progress-container:hover .scrubber {
-        transform: translateY(-50%) scale(1);
-    }
-}
-
-/* Buttons - Polished */
-.ctrl.btn {
-    width: var(--ap-btn-size);
-    height: var(--ap-btn-size);
-    border-radius: var(--ap-radius-md);
-    transition: background 0.2s, transform 0.2s;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-
-    &:hover {
-        background: var(--ap-surface-hover);
-        transform: translateY(-2px);
-    }
-
-    &:active {
-        transform: translateY(0) scale(0.92);
-    }
-
-    svg {
-        width: 26px;
-        height: 26px;
-        filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
-    }
-}
-
-.time-display {
-    font-variant-numeric: tabular-nums;
-    font-size: 13px;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-    opacity: 0.85;
-    cursor: pointer;
-    padding: 4px 8px;
-    border-radius: var(--ap-radius-sm);
-    transition: background 0.2s, opacity 0.2s;
-
-    &:hover {
-        background: var(--ap-surface-hover);
-        opacity: 1;
-    }
-}
-
-/* Volume - Slim & Sleek */
-.volume-container {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-
-    input[type="range"] {
-        width: 0;
-        opacity: 0;
-        transition: width 0.4s var(--ap-transition), opacity 0.3s;
-        height: 4px;
-        appearance: none;
-        background: rgba(255, 255, 255, 0.1);
-        border-radius: 10px;
-        outline: none;
-
-        &::-webkit-slider-thumb {
-            appearance: none;
-            width: 12px;
-            height: 12px;
-            background: #fff;
-            border-radius: 50%;
-            cursor: pointer;
-            box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
-        }
-    }
-
-    &:hover input[type="range"] {
-        width: 90px;
-        opacity: 1;
-    }
-}
-
-/* Big Play Overlay - Immersive */
-.ap-big-play {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 10;
-    background: radial-gradient(circle at center, rgba(0, 0, 0, 0.2) 0%, transparent 70%);
-    pointer-events: none;
-
-    &>div {
-        background: var(--ap-surface-thick);
-        backdrop-filter: var(--ap-blur-thick);
-        border: 1px solid var(--ap-outline);
-        width: 96px;
-        height: 96px;
-        border-radius: 50%;
+    .ctrl.btn {
+        width: var(--ap-btn-size);
+        height: var(--ap-btn-size);
+        border-radius: var(--ap-radius-md);
         display: flex;
         align-items: center;
         justify-content: center;
-        transition: transform 0.4s var(--ap-transition), opacity 0.3s;
-        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
-        pointer-events: auto;
+        padding: 0;
+        flex: none;
+        /* Background only — the previous `translateY(-2px)` on hover made the
+           whole row twitch as the pointer crossed it. */
+        transition: background 0.16s var(--ap-ease), transform 0.1s var(--ap-ease);
 
         &:hover {
-            transform: scale(1.15);
             background: var(--ap-surface-hover);
         }
 
+        &:active {
+            background: var(--ap-surface-active);
+            transform: scale(0.94);
+        }
+
+        &:focus-visible {
+            outline: 2px solid var(--ap-accent);
+            outline-offset: -2px;
+        }
+
         svg {
-            width: 48px;
-            height: 48px;
-            margin-left: 4px;
-            /* Optical center for play icon */
+            width: var(--ap-icon-size);
+            height: var(--ap-icon-size);
         }
     }
-}
 
-/* Visual Feedback - Subtle */
-.feedback-overlay {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background: var(--ap-surface-thick);
-    backdrop-filter: var(--ap-blur-thick);
-    padding: 24px;
-    border-radius: 50%;
-    pointer-events: none;
-    z-index: 100;
-    opacity: 0;
-    border: 1px solid var(--ap-outline);
-    transition: opacity 0.3s, transform 0.5s var(--ap-transition);
-}
+    .time-display {
+        font-size: 13px;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.01em;
+        color: var(--ap-on-scrim-variant);
+        cursor: pointer;
+        padding: 4px 8px;
+        margin-left: 4px;
+        border-radius: var(--ap-radius-sm);
+        white-space: nowrap;
+        transition: color 0.16s var(--ap-ease), background 0.16s var(--ap-ease);
 
-/* Loader Spinner */
-.ap-loader {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    z-index: 100;
-    pointer-events: none;
-    display: none;
-    
-    svg {
-        width: 64px;
-        height: 64px;
-        animation: ap-spin 1s linear infinite;
-        filter: drop-shadow(0 0 10px rgba(0, 0, 0, 0.5));
+        &:hover {
+            color: var(--ap-on-scrim);
+            background: var(--ap-surface-hover);
+        }
     }
 
-    &.visible {
-        display: block;
+    /* ---- Volume -------------------------------------------------------- */
+
+    .volume-container {
+        display: flex;
+        align-items: center;
+
+        input[type="range"] {
+            width: 0;
+            opacity: 0;
+            margin: 0 0 0 2px;
+            height: 4px;
+            appearance: none;
+            -webkit-appearance: none;
+            cursor: pointer;
+            border-radius: 999px;
+            outline: none;
+            transition: width 0.22s var(--ap-ease), opacity 0.18s var(--ap-ease),
+                margin 0.22s var(--ap-ease);
+            /* `--volume-percent` is kept up to date by Controls; it fills the
+               track up to the current level instead of leaving it flat. */
+            background: linear-gradient(to right,
+                    var(--ap-scrubber) 0,
+                    var(--ap-scrubber) var(--volume-percent, 100%),
+                    var(--ap-track) var(--volume-percent, 100%),
+                    var(--ap-track) 100%);
+
+            &::-webkit-slider-thumb {
+                appearance: none;
+                -webkit-appearance: none;
+                width: 12px;
+                height: 12px;
+                background: var(--ap-scrubber);
+                border-radius: 50%;
+                cursor: pointer;
+            }
+
+            &::-moz-range-thumb {
+                width: 12px;
+                height: 12px;
+                background: var(--ap-scrubber);
+                border: none;
+                border-radius: 50%;
+                cursor: pointer;
+            }
+
+            &:focus-visible {
+                outline: 2px solid var(--ap-accent);
+                outline-offset: 4px;
+            }
+        }
+
+        &:hover input[type="range"],
+        &:focus-within input[type="range"] {
+            width: 76px;
+            opacity: 1;
+            margin: 0 8px 0 6px;
+        }
+    }
+
+    /* ---- Big play button ----------------------------------------------- */
+
+    .ap-big-play {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 30;
+        /* The wrapper is click-through; only the inner button takes clicks. */
+        pointer-events: none;
+
+        .ap-big-play-btn {
+            width: 72px;
+            height: 72px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            pointer-events: auto;
+            color: var(--ap-on-scrim);
+            background: var(--ap-surface);
+            backdrop-filter: var(--ap-blur-thick);
+            border: 1px solid var(--ap-outline);
+            box-shadow: var(--ap-shadow);
+            transition: transform 0.2s var(--ap-ease), background 0.2s var(--ap-ease);
+
+            &:hover {
+                transform: scale(1.08);
+                background: var(--ap-accent);
+                border-color: transparent;
+                color: var(--ap-on-accent);
+            }
+
+            &:active {
+                transform: scale(0.98);
+            }
+
+            &:focus-visible {
+                outline: 2px solid var(--ap-accent);
+                outline-offset: 4px;
+            }
+
+            svg {
+                width: 34px;
+                height: 34px;
+                /* Optical centring for the triangular play glyph. */
+                margin-left: 3px;
+            }
+        }
+    }
+
+    /* ---- Transient feedback bezel --------------------------------------- */
+
+    .feedback-overlay {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 76px;
+        height: 76px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        background: var(--ap-surface);
+        backdrop-filter: var(--ap-blur);
+        border: 1px solid var(--ap-outline);
+        color: var(--ap-on-surface);
+        pointer-events: none;
+        z-index: 60;
+        opacity: 0;
+        transition: opacity 0.3s var(--ap-ease), transform 0.45s var(--ap-ease);
+
+        svg {
+            width: 32px;
+            height: 32px;
+        }
+    }
+
+    /* ---- Buffering spinner ---------------------------------------------- */
+
+    .ap-loader {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 60;
+        pointer-events: none;
+        display: none;
+        color: var(--ap-accent);
+
+        svg {
+            width: 52px;
+            height: 52px;
+            animation: ap-spin 0.9s linear infinite;
+        }
+
+        &.visible {
+            display: block;
+        }
     }
 }
 
 @keyframes ap-spin {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
+}
+
+/* Volume is hover-revealed, which no touch device can do; the mute button
+   stays and hardware volume covers the rest. */
+@media (pointer: coarse) {
+    .ap-player .volume-container input[type="range"] {
+        display: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ap-player .controls,
+    .ap-player .ap-big-play-btn,
+    .ap-player .feedback-overlay,
+    .ap-player .scrubber,
+    .ap-player .progress-container,
+    .ap-player .progress-hover,
+    .ap-player .volume-container input[type="range"] {
+        transition-duration: 0.01ms;
+    }
+
+    .ap-player .ap-loader svg {
+        animation-duration: 2s;
+    }
 }
